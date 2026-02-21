@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Risk Europe: Solo Companion</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
+        :root {
+            --parchment: #f7eed8; --parchment-dark: #eedfc0; --ink: #1e140a; --ink-light: #4a3020;
+            --accent: #8b1a1a; --gold: #c8952a; --gold-light: #f0c060;
+            --border: #6b4c2a; --border-light: #a07050;
+            --p-red: #e8192c; --p-green: #4db847; --p-purple: #3b0764; --p-blue: #5bb8f5;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Crimson Text', Georgia, serif; background: #0d0a06; color: var(--ink);
+               display: flex; flex-direction: column; align-items: center; padding: 8px; margin: 0; min-height: 100vh; }
+        .screen { width: 100%; max-width: 680px; }
+        .paper { background: var(--parchment); border: 3px solid var(--border); border-radius: 4px;
+                 box-shadow: 0 0 40px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
+        .inner { padding: 18px; position: relative; z-index: 1; }
+
+        /* WIZARD */
+        .wizard-header { background: var(--ink); color: var(--gold-light); padding: 13px 18px;
+                         font-family: 'Cinzel', serif; display: flex; justify-content: space-between; align-items: center; }
+        .wh-title { font-size: 1em; font-weight: 700; letter-spacing: 0.05em; }
+        .wh-step  { font-size: 0.78em; opacity: 0.7; }
+        .progress-bar { height: 4px; background: rgba(200,149,42,0.2); }
+        .progress-fill { height: 100%; background: var(--gold); transition: width 0.4s; }
+        .setup-title { font-family: 'Cinzel', serif; font-size: 1.35em; font-weight: 700; color: var(--accent);
+                       text-align: center; margin: 0 0 6px; }
+        .setup-sub { text-align: center; color: var(--ink-light); font-size: 0.93em; margin: 0 0 18px; line-height: 1.55; }
+        .color-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+        .color-choice { border-radius: 10px; padding: 18px 10px; text-align: center; cursor: pointer;
+                        border: 3px solid transparent; transition: all 0.2s; color: white;
+                        font-family: 'Cinzel', serif; font-weight: 700; font-size: 1em; letter-spacing: 0.06em; }
+        .color-choice.selected { border-color: white; box-shadow: 0 0 0 3px var(--ink); transform: scale(1.04); }
+        .color-choice:active { transform: scale(0.97); }
+        .capital-card { background: rgba(255,252,245,0.92); border: 2px solid var(--border-light);
+                        border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+        .cap-header { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+        .cap-dot { width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0; border: 2px solid rgba(0,0,0,0.2); }
+        .cap-name { font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.95em; color: var(--accent); }
+        .cap-body { font-size: 0.87em; line-height: 1.7; }
+        .cap-note { font-style: italic; color: var(--ink-light); font-size: 0.85em; margin-top: 3px; }
+        .cap-chooser { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+        .cap-btn { background: rgba(255,252,245,0.92); border: 2px solid var(--border-light); border-radius: 8px;
+                   padding: 12px 8px; text-align: center; cursor: pointer; transition: all 0.15s;
+                   font-family: 'Cinzel', serif; font-weight: 700; font-size: 0.88em; color: var(--ink); }
+        .cap-btn:active { transform: scale(0.97); }
+        .cap-btn.selected { border-color: var(--accent); background: rgba(139,26,26,0.07); color: var(--accent); }
+        .cap-btn .cap-tax { font-size: 0.75em; color: var(--ink-light); font-family: 'Crimson Text',serif; font-weight:400; margin-top:3px; }
+        .info-box { background: rgba(200,149,42,0.1); border-left: 3px solid var(--gold);
+                    padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 0.87em;
+                    line-height: 1.6; margin: 10px 0; }
+
+        /* GAME HEADER */
+        .game-header { background: var(--ink); color: var(--gold-light); padding: 10px 16px;
+                       font-family: 'Cinzel', serif; display: flex; justify-content: space-between; align-items: center;
+                       border-bottom: 3px solid var(--gold); }
+        .gh-round { font-size: 1.05em; font-weight: 700; }
+        .gh-step  { font-size: 0.8em; opacity: 0.85; }
+        .log-strip { background: #1a1208; border-bottom: 2px solid var(--border); padding: 5px 14px;
+                     font-family: 'Courier New', monospace; font-size: 0.75em; min-height: 2.1em; }
+        .log-entry { color: #d4a84b; }
+        .log-entry.old { color: #7a6030; }
+
+        /* PLAYER BAR */
+        .players-bar { display: grid; grid-template-columns: repeat(4,1fr); border-bottom: 2px solid var(--border); padding-bottom: 18px; }
+        .player-tile { padding: 9px 3px 7px; text-align: center; position: relative; border-right: 1px solid rgba(0,0,0,0.15); }
+        .player-tile:last-child { border-right: none; }
+        .player-tile.active { box-shadow: inset 0 0 0 3px rgba(255,255,255,0.9); z-index: 2; }
+        .player-tile.active::after { content: '▼ ACTIVE'; position: absolute; bottom: -16px; left: 50%;
+            transform: translateX(-50%); color: white; font-size: 7px; font-family: 'Cinzel',serif; font-weight: 700;
+            letter-spacing: 0.05em; white-space: nowrap; background: var(--ink); padding: 1px 5px; border-radius: 3px; z-index: 10; }
+        .p-name { font-family: 'Cinzel',serif; font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em;
+                  color: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; gap: 4px; }
+        .crown-badge { font-size: 11px; cursor: pointer; padding: 1px 3px; border-radius: 3px; opacity: 0.35; line-height: 1; transition: 0.15s; }
+        .player-tile.is-first .crown-badge { opacity: 1; filter: drop-shadow(0 0 4px gold); }
+        .player-tile.is-pending .crown-badge { opacity: 1; filter: drop-shadow(0 0 6px #ffeb3b); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.3)} }
+        .coin-row { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 4px 0 3px; }
+        .coin-count { font-family: 'Cinzel',serif; font-size: 1.28em; font-weight: 700; color: inherit; min-width: 24px; text-align: center; }
+        .coin-btn { background: rgba(128,128,128,0.2); border: 1px solid rgba(0,0,0,0.2); color: inherit;
+                    width: 22px; height: 22px; border-radius: 50%; cursor: pointer; font-size: 14px;
+                    display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.1s; }
+        .coin-btn:active { background: rgba(128,128,128,0.4); }
+        .coin-threshold { font-size: 0.58em; font-weight: 700; padding: 2px 6px; border-radius: 8px;
+                          color: white; letter-spacing: 0.05em; font-family: 'Cinzel',serif; }
+        .mode-tax   { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,100,100,0.7); }
+        .mode-spend { background: rgba(0,0,0,0.5); border: 1px solid rgba(100,255,150,0.6); }
+        .deck-pip { font-size: 0.58em; color: inherit; opacity: 0.55; font-family: 'Courier New',monospace; }
+
+        /* ACTION AREA */
+        .action-area { padding: 14px; }
+        .die-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 12px; }
+        .btn-die { display: inline-flex; align-items: center; gap: 6px; background: var(--parchment-dark);
+                   border: 2px solid var(--border); border-radius: 6px; padding: 8px 16px;
+                   font-family: 'Cinzel',serif; font-size: 0.87em; font-weight: 600; color: var(--ink); cursor: pointer; }
+        .btn-die:active { transform: scale(0.96); }
+        .die-result { display: inline-block; font-size: 1.8em; min-width: 36px; text-align: center; transition: all 0.15s; }
+        .action-card { display: block; background: #fffdf5; border: 3px solid var(--border); border-radius: 10px;
+                       padding: 20px 20px 16px; font-family: 'Cinzel',serif; font-size: 1.2em; font-weight: 700;
+                       color: var(--accent); letter-spacing: 0.04em; text-align: center; margin-bottom: 12px;
+                       box-shadow: 0 4px 12px rgba(0,0,0,0.12); position: relative; }
+        .action-card.revealed  { border-color: var(--accent); }
+        .action-card.unrevealed{ color: #bbb; border-color: #ccc; }
+        .card-sub { font-size: 0.58em; color: var(--ink-light); font-family: 'Crimson Text',serif; font-weight: 400; margin-top: 4px; }
+        .human-banner { border: 3px dashed var(--p-blue); border-radius: 10px; padding: 22px 16px;
+                        text-align: center; background: rgba(26,95,168,0.06); margin-bottom: 12px; }
+        .human-banner h2 { font-family: 'Cinzel',serif; color: var(--p-blue); margin: 0 0 6px; font-size: 1.2em; }
+        .human-banner p { margin: 0; color: var(--ink-light); font-size: 0.9em; line-height: 1.55; }
+
+        /* STEPS */
+        .steps-panel { background: rgba(255,252,245,0.95); border: 2px solid var(--border-light); border-radius: 8px; overflow: hidden; margin-bottom: 12px; }
+        .steps-header { color: white; padding: 8px 14px; font-family: 'Cinzel',serif; font-size: 0.8em; font-weight: 700; letter-spacing: 0.06em; }
+        .step-item { display: flex; gap: 11px; padding: 11px 14px; border-bottom: 1px solid rgba(0,0,0,0.07);
+                     cursor: pointer; align-items: flex-start; transition: background 0.1s; }
+        .step-item:last-child { border-bottom: none; }
+        .step-item.checked { background: rgba(30,126,68,0.07); }
+        .step-checkbox { width: 26px; height: 26px; border: 2px solid var(--border-light); border-radius: 6px;
+                         flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+                         font-size: 15px; transition: all 0.15s; margin-top: 2px; }
+        .step-item.checked .step-checkbox { background: var(--p-green); border-color: var(--p-green); color: white; }
+        .step-num { font-family: 'Cinzel',serif; font-weight: 700; color: var(--gold); font-size: 0.8em; margin-top: 4px; flex-shrink: 0; }
+        .step-text { font-size: 0.88em; line-height: 1.62; color: var(--ink); flex: 1; }
+        .step-text b { color: var(--accent); }
+        .if-tie { font-style: italic; color: var(--ink-light); display: block; margin-top: 2px; font-size: 0.92em; }
+        .rule-note { display: block; margin-top: 5px; padding: 4px 8px; background: rgba(200,149,42,0.1);
+                     border-left: 2px solid var(--gold); border-radius: 0 4px 4px 0; font-size: 0.9em; color: var(--ink-light); }
+        .buy-highlight { display: block; font-family: 'Cinzel',serif; font-size: 0.95em; color: var(--accent); font-weight: 700; margin: 4px 0; }
+        .steps-progress { background: rgba(0,0,0,0.08); height: 4px; }
+        .steps-progress-fill { height: 100%; background: var(--p-green); transition: width 0.2s; }
+        .step-divider {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 14px; background: var(--ink); color: var(--gold-light);
+            font-family: 'Cinzel',serif; font-size: 0.78em; font-weight: 700;
+            letter-spacing: 0.07em; text-transform: uppercase;
+        }
+        .step-divider::before, .step-divider::after {
+            content:''; flex:1; height:1px; background: rgba(240,192,96,0.35);
+        }
+
+        /* BUTTONS */
+        .btn-primary { display: block; width: 100%; background: var(--accent); color: white; border: none;
+                       border-radius: 8px; padding: 17px; font-family: 'Cinzel',serif; font-size: 1.02em;
+                       font-weight: 700; letter-spacing: 0.06em; cursor: pointer;
+                       box-shadow: 0 4px 0 #4a0a0a; transition: all 0.1s; margin-bottom: 10px; }
+        .btn-primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #4a0a0a; }
+        .btn-advance { display: block; width: 100%; background: var(--ink); color: #e8d8b8; border: none;
+                       border-radius: 8px; padding: 15px; font-family: 'Cinzel',serif; font-size: 0.95em;
+                       font-weight: 600; letter-spacing: 0.05em; cursor: pointer;
+                       box-shadow: 0 3px 0 #050301; transition: all 0.1s; margin-bottom: 10px; }
+        .btn-advance:active { transform: translateY(2px); box-shadow: 0 1px 0 #050301; }
+        .btn-advance:disabled { background: #555; cursor: not-allowed; opacity: 0.55; box-shadow: 0 3px 0 #222; }
+        .btn-secondary { display: block; width: 100%; background: var(--parchment-dark); color: var(--ink);
+                         border: 2px solid var(--border); border-radius: 8px; padding: 13px;
+                         font-family: 'Cinzel',serif; font-size: 0.93em; font-weight: 600; cursor: pointer;
+                         margin-bottom: 10px; transition: all 0.1s; }
+        .btn-secondary:active { transform: scale(0.98); }
+        .btn-reset { background: none; border: none; color: #999; font-size: 0.8em; cursor: pointer; padding: 8px; text-decoration: underline; display: block; margin: 4px auto 0; }
+
+        /* REFERENCE */
+        .ref-toggle { background: rgba(255,252,245,0.9); border: 1px solid var(--border-light); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .ref-toggle-btn { width: 100%; padding: 9px 14px; background: none; border: none; cursor: pointer;
+                          display: flex; justify-content: space-between; align-items: center;
+                          font-family: 'Cinzel',serif; font-size: 0.76em; font-weight: 700; letter-spacing: 0.06em;
+                          color: var(--accent); text-transform: uppercase; text-align: left; }
+        .ref-toggle-btn .arrow { transition: transform 0.2s; font-size: 0.9em; }
+        .ref-toggle-btn.open .arrow { transform: rotate(180deg); }
+        .ref-body { display: none; padding: 8px 14px 12px; font-size: 0.84em; line-height: 1.65; border-top: 1px solid var(--border-light); }
+        .ref-body.open { display: block; }
+        .ref-body table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        .ref-body td, .ref-body th { padding: 3px 5px; border-bottom: 1px solid rgba(0,0,0,0.07); }
+        .ref-body th { font-weight: 700; font-family: 'Cinzel',serif; font-size: 0.82em; color: var(--accent); }
+
+        @media (max-width: 480px) {
+            .inner { padding: 13px; }
+            .cap-chooser { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="setup-screen" class="screen">
+<div class="paper">
+    <div class="wizard-header">
+        <span class="wh-title">RISK EUROPE — SOLO SETUP</span>
+        <span class="wh-step" id="wiz-step-label">Step 1 of 7</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="wiz-progress" style="width:14%"></div></div>
+    <div class="inner" id="wiz-body"></div>
+</div>
+</div>
+
+<div id="game-screen" class="screen" style="display:none">
+<div class="paper">
+    <div class="game-header">
+        <span class="gh-round" id="round-display">ROUND 1</span>
+        <span class="gh-step"  id="step-display">ACTION 1 of 2</span>
+    </div>
+    <div class="log-strip" id="action-log"></div>
+    <div class="players-bar" id="player-bar"></div>
+    <div class="action-area">
+        <div class="die-row">
+            <button class="btn-die" onclick="rollDie()">🎲 Roll Tiebreaker Die</button>
+            <span class="die-result" id="die-result">—</span>
+        </div>
+
+        <div id="ai-view">
+            <div class="action-card unrevealed" id="card-display">
+                Tap button to reveal<br><span class="card-sub">Automaton card is face-down</span>
+            </div>
+            <button class="btn-primary" id="reveal-btn" onclick="revealAction()">▶ REVEAL ACTION</button>
+        </div>
+        <div id="human-view" style="display:none">
+            <div class="human-banner">
+                <h2>⚔ YOUR TURN</h2>
+                <p>Play one of your two Order Cards. Resolve movement and any battles per the base game rules.</p>
+            </div>
+        </div>
+
+        <div class="steps-panel" id="steps-panel" style="display:none">
+            <div class="steps-header" id="steps-header">STEPS TO PERFORM</div>
+            <div class="steps-progress"><div class="steps-progress-fill" id="steps-progress-fill" style="width:0%"></div></div>
+            <div id="steps-list"></div>
+        </div>
+
+        <div class="ref-toggle">
+            <button class="ref-toggle-btn" onclick="toggleRef('ref-arrival')">
+                ⚔ Arrival Minima (Attacking) <span class="arrow">▼</span>
+            </button>
+            <div class="ref-body" id="ref-arrival">
+                Each unit (regardless of type) counts as 1. To attack an enemy territory:<br><br>
+                <table>
+                    <tr><th>Arriving army size</th><th>Attack threshold</th></tr>
+                    <tr><td>1 – 5 units</td><td>Must be ≥ defender count</td></tr>
+                    <tr><td>6 – 10 units</td><td>May be up to 3 fewer than defender</td></tr>
+                    <tr><td>11 – 15 units</td><td>May be up to 4 fewer than defender</td></tr>
+                    <tr><td>16 – 20 units</td><td>May be up to 5 fewer than defender</td></tr>
+                    <tr><td>21+ units</td><td>No restriction</td></tr>
+                </table>
+                <br>⚠ A Siege Engine is always required to attack a city that has a Castle.
+            </div>
+        </div>
+        <div class="ref-toggle">
+            <button class="ref-toggle-btn" onclick="toggleRef('ref-move')">
+                🚶 Movement Leave-Behind Rules <span class="arrow">▼</span>
+            </button>
+            <div class="ref-body" id="ref-move">
+                When an automaton army departs a territory it must leave units behind:<br><br>
+                • <b>Non-urban territory:</b> always leave <b>1 unit</b> behind.<br>
+                • <b>City:</b> leave a number of units equal to the city's <b>Tax value</b>.<br><br>
+                <b>Which units to leave (in order):</b><br>
+                A. Footmen &nbsp;→&nbsp; B. Archers &nbsp;→&nbsp; C. Siege Engines &nbsp;→&nbsp; D. Cavalry
+            </div>
+        </div>
+        <div class="ref-toggle">
+            <button class="ref-toggle-btn" onclick="toggleRef('ref-spend')">
+                💰 Full Spend Table <span class="arrow">▼</span>
+            </button>
+            <div class="ref-body" id="ref-spend">
+                Automatons spend at the row matching their exact coin count (or highest row ≤ their coins):<br><br>
+                <table>
+                    <tr><th>Coins</th><th>Purchase</th></tr>
+                    <tr><td>5</td><td>2 Footmen + 1 Cavalry</td></tr>
+                    <tr><td>6</td><td>1 Footman + 1 Archer + 1 Cavalry</td></tr>
+                    <tr><td>7</td><td>2 Footmen + 1 Archer + 1 Cavalry</td></tr>
+                    <tr><td>8</td><td>2 Footmen + 2 Cavalry</td></tr>
+                    <tr><td>9</td><td>2 Footmen + 2 Archers + 1 Cavalry</td></tr>
+                    <tr><td>10</td><td>1 Siege Engine</td></tr>
+                    <tr><td>11</td><td>1 Footman + 1 Siege Engine</td></tr>
+                    <tr><td>12</td><td>1 Castle</td></tr>
+                    <tr><td>13</td><td>1 Cavalry + 1 Siege Engine</td></tr>
+                    <tr><td>14</td><td>2 Footmen + 1 Castle</td></tr>
+                    <tr><td>15</td><td>2 Footmen + 1 Cavalry + 1 Siege Engine</td></tr>
+                    <tr><td>16</td><td>2 Footmen + 1 Archer + 1 Castle</td></tr>
+                    <tr><td>17</td><td>2 Footmen + 1 Archer + 1 Cavalry + 1 Siege Engine</td></tr>
+                    <tr><td>18</td><td>2 Footmen + 1 Cavalry + 1 Castle</td></tr>
+                    <tr><td>19</td><td>2 Footmen + 2 Archers + 1 Cavalry + 1 Siege Engine</td></tr>
+                    <tr><td>20</td><td>3 Footmen + 1 Archer + 1 Cavalry + 1 Castle</td></tr>
+                </table>
+                <br>No castles left in supply → buy 1 Crown Card + 2 Footmen instead.<br>
+                Missing a figure type → substitute 2 Footmen ↔ 1 Archer. Keep leftover coins.
+            </div>
+        </div>
+
+        <div style="margin-top: 12px;">
+            <button class="btn-advance" id="complete-btn" onclick="advanceTurn()" disabled>
+                ✓ COMPLETE TURN — NEXT PLAYER
+            </button>
+            <button class="btn-reset" onclick="confirmReset()">↺ Full Reset / Return to Setup</button>
+        </div>
+    </div>
+</div>
+</div>
+
+<script>
+// ================================================================
+// DATA
+// ================================================================
+const CAPITALS = [
+    { name:"MADRID",         tax:3, units:3, adjOptions:[{name:"VALENCE",units:2}] },
+    { name:"PARIS",          tax:3, units:3, adjOptions:[{name:"LORRAINE",units:2},{name:"NORMANDY",units:2},{name:"NAVARRE",units:2}] },
+    { name:"LONDON",         tax:3, units:3, adjOptions:[{name:"LORRAINE",units:2},{name:"NORMANDY",units:2},{name:"WALES",units:2}] },
+    { name:"STOCKHOLM",      tax:3, units:3, adjOptions:[{name:"DENMARK",units:2},{name:"FINLAND",units:2}] },
+    { name:"KIEV",           tax:2, units:2, adjOptions:[{name:"SMOLENSK",units:3}] },
+    { name:"ROME",           tax:3, units:3, adjOptions:[{name:"LOMBARDY",units:2}] },
+    { name:"BERLIN",         tax:3, units:3, adjOptions:[{name:"LORRAINE",units:2},{name:"DENMARK",units:2},{name:"BOHEMIA or FRANCONIA (roll die)",units:2}] },
+    { name:"CONSTANTINOPLE", tax:3, units:3, adjOptions:[{name:"BULGARIA",units:2}] },
+];
+
+const DECK_BASE = [
+    "TAX OR SPEND","TAX OR SPEND","TAX OR SPEND",
+    "EXPAND OR MANEUVER","EXPAND OR MANEUVER",
+    "SPLIT EXPAND OR MANEUVER","SPLIT EXPAND OR MANEUVER",
+    "FORTIFY / EXPAND OR MANEUVER",
+    "SIEGE ASSAULT / EXPAND OR MANEUVER",
+    "KING ME"
+];
+
+const SPEND_TABLE = {
+    5:"2 Footmen + 1 Cavalry", 6:"1 Footman + 1 Archer + 1 Cavalry",
+    7:"2 Footmen + 1 Archer + 1 Cavalry", 8:"2 Footmen + 2 Cavalry",
+    9:"2 Footmen + 2 Archers + 1 Cavalry", 10:"1 Siege Engine",
+    11:"1 Footman + 1 Siege Engine", 12:"1 Castle",
+    13:"1 Cavalry + 1 Siege Engine", 14:"2 Footmen + 1 Castle",
+    15:"2 Footmen + 1 Cavalry + 1 Siege Engine", 16:"2 Footmen + 1 Archer + 1 Castle",
+    17:"2 Footmen + 1 Archer + 1 Cavalry + 1 Siege Engine", 18:"2 Footmen + 1 Cavalry + 1 Castle",
+    19:"2 Footmen + 2 Archers + 1 Cavalry + 1 Siege Engine", 20:"3 Footmen + 1 Archer + 1 Cavalry + 1 Castle"
+};
+const COLOR_HEX = { red:'#e8192c', green:'#4db847', purple:'#3b0764', blue:'#5bb8f5' };
+
+function getBestSpend(coins) {
+    const keys = Object.keys(SPEND_TABLE).map(Number).sort((a,b)=>b-a);
+    const k = keys.find(k => k <= coins);
+    return k ? { cost:k, items:SPEND_TABLE[k] } : { cost:5, items:SPEND_TABLE[5] };
+}
+
+// ================================================================
+// SETUP STATE
+// ================================================================
+const S = {
+    step:0, playerColor:null, firstAuto:null,
+    autoCapitals:{}, playerCapital:null,
+    autoSecondary:{}, playerSecondary:null,
+    takenAdj:new Set(), shuffledCaps:[], coinsData:[]
+};
+
+function autoColors() { return ['red','green','purple','blue'].filter(c=>c!==S.playerColor); }
+
+// ================================================================
+// SETUP WIZARD
+// ================================================================
+const TOTAL_STEPS = 7;
+
+function showStep(n) {
+    S.step = n;
+    document.getElementById('wiz-step-label').textContent = `Step ${n+1} of ${TOTAL_STEPS}`;
+    document.getElementById('wiz-progress').style.width = `${Math.round(((n+1)/TOTAL_STEPS)*100)}%`;
+    const b = document.getElementById('wiz-body');
+    [renderWelcome, renderChooseColor, renderAssignCapitals, renderPlaceAutos,
+     renderPlayerCapital, renderSecondary, renderReady][n](b);
+}
+
+function wizNext() { showStep(S.step+1); }
+function wizBack() { if(S.step>0) showStep(S.step-1); }
+
+function renderWelcome(el) {
+    el.innerHTML = `
+        <div class="setup-title">Welcome, Commander</div>
+        <div class="setup-sub">This app runs the <b>3 Automaton players</b> so you can play Risk Europe solo. It draws their cards and tells you exactly what to do on the board each turn.</div>
+        <div class="info-box"><b>How it works:</b><br>
+        • You play your own turns normally using the base game rules you already know.<br>
+        • For each automaton turn, this app reveals their card and shows a <b>numbered checklist</b> of exactly what to move.<br>
+        • Tap each step as you carry it out on the board. When all steps are done, tap <b>Complete Turn</b>.<br>
+        • The app handles turn order, coin tracking, and deck reshuffling automatically.</div>
+        <div class="info-box"><b>You win</b> by reaching 7 Crown tokens first — same as the base game.</div>
+        <button class="btn-primary" onclick="wizNext()">BEGIN SETUP →</button>`;
+}
+
+function renderChooseColor(el) {
+    el.innerHTML = `
+        <div class="setup-title">Choose Your Colour</div>
+        <div class="setup-sub">Pick the colour you'll play. The other three become automatons.</div>
+        <div class="color-grid">
+            ${['red','green','purple','blue'].map(c=>`
+                <div class="color-choice ${S.playerColor===c?'selected':''}"
+                     style="background:${COLOR_HEX[c]}" onclick="selectColor('${c}')">
+                    ${c.toUpperCase()}
+                </div>`).join('')}
+        </div>
+        <div id="col-confirm" style="${S.playerColor?'':'display:none'}">
+            <div class="info-box">You are <b>${(S.playerColor||'').toUpperCase()}</b>. Automatons: <b>${autoColors().map(c=>c.toUpperCase()).join(', ')}</b>. You go <b>last</b> in Round 1.</div>
+            <button class="btn-primary" onclick="wizNext()">CONFIRM →</button>
+        </div>
+        <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
+}
+
+function selectColor(c) {
+    S.playerColor = c;
+    renderChooseColor(document.getElementById('wiz-body'));
+}
+
+function resolveAdj(capital) {
+    for (const adj of capital.adjOptions) {
+        if (!S.takenAdj.has(adj.name)) { S.takenAdj.add(adj.name); capital._adj = adj; return; }
+    }
+    capital._adj = capital.adjOptions[capital.adjOptions.length-1];
+}
+
+function renderCapCard(color, capital, isPrimary) {
+    const adj = capital._adj || capital.adjOptions[0];
+    const adjNote = capital.adjOptions.length > 1
+        ? `<div class="cap-note">If ${adj.name} is taken: try ${capital.adjOptions.map(a=>a.name).join(' → ')} in order.</div>` : '';
+    const extra = isPrimary
+        ? `<br>🏰 <b>1 Castle</b> on ${capital.name}<br>👑 <b>2 Crown tokens</b> on ${capital.name}`
+        : `<br><span style="color:#888;font-style:italic;">No castle on secondary capital.</span>`;
+    return `<div class="capital-card">
+        <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[color]}"></div>
+        <div class="cap-name">${color.toUpperCase()} — ${capital.name}</div></div>
+        <div class="cap-body">
+            📍 <b>${capital.name}:</b> place <b>${capital.units} Footmen</b><br>
+            📍 <b>${adj.name}:</b> place <b>${adj.units} Footmen</b>
+            ${adjNote}${extra}
+        </div></div>`;
+}
+
+function renderAssignCapitals(el) {
+    const autos = autoColors();
+    if (!S.shuffledCaps.length) S.shuffledCaps = shuffle([...CAPITALS]);
+    S.takenAdj = new Set();
+    autos.forEach((color, i) => {
+        S.autoCapitals[color] = S.shuffledCaps[i];
+        resolveAdj(S.shuffledCaps[i]);
+    });
+    el.innerHTML = `
+        <div class="setup-title">Automaton Capitals</div>
+        <div class="setup-sub">Capitals have been randomly assigned. Place each automaton's starting forces on the board now.</div>
+        ${autos.map(c => renderCapCard(c, S.autoCapitals[c], true)).join('')}
+        <div class="info-box">Each automaton also receives <b>5 starting coins</b> (plus tax income — we'll calculate the total in a later step).</div>
+        <button class="btn-primary" onclick="wizNext()">UNITS PLACED ON BOARD →</button>
+        <button class="btn-secondary" onclick="reshuffleCapitals()">🔀 Re-Randomise Capitals</button>
+        <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
+}
+
+function reshuffleCapitals() {
+    S.shuffledCaps = shuffle([...CAPITALS]);
+    renderAssignCapitals(document.getElementById('wiz-body'));
+}
+
+function renderPlaceAutos(el) {
+    const autos = autoColors();
+    el.innerHTML = `
+        <div class="setup-title">Who Goes First?</div>
+        <div class="setup-sub">In Round 1 you go last. Which automaton is sitting to your <b>left</b>? They take the First Player marker and go first.</div>
+        <div class="cap-chooser" id="first-picker">
+            ${autos.map(c=>`<div class="cap-btn ${S.firstAuto===c?'selected':''}" onclick="pickFirst('${c}')">
+                ${c.toUpperCase()}<div class="cap-tax">to your left</div></div>`).join('')}
+        </div>
+        <div id="first-confirm" style="${S.firstAuto?'':'display:none'}">
+            <div class="info-box"><b>${(S.firstAuto||'').toUpperCase()}</b> holds the First Player marker and goes first each round (until a KING ME card transfers it).</div>
+            <button class="btn-primary" onclick="wizNext()">CONTINUE →</button>
+        </div>
+        <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
+}
+
+function pickFirst(c) {
+    S.firstAuto = c;
+    renderPlaceAutos(document.getElementById('wiz-body'));
+}
+
+function renderPlayerCapital(el) {
+    const taken = new Set(autoColors().map(c=>S.autoCapitals[c].name));
+    const available = CAPITALS.filter(c=>!taken.has(c.name));
+    el.innerHTML = `
+        <div class="setup-title">Your Capital</div>
+        <div class="setup-sub">Choose one of the remaining capitals for <b>${(S.playerColor||'').toUpperCase()}</b>. Place your units, Castle, and 2 Crowns.</div>
+        <div class="cap-chooser">
+            ${available.map(cap=>`<div class="cap-btn ${S.playerCapital&&S.playerCapital.name===cap.name?'selected':''}" onclick="pickPlayerCap('${cap.name}')">
+                ${cap.name}<div class="cap-tax">Tax: ${cap.tax}</div></div>`).join('')}
+        </div>
+        <div id="player-cap-detail">${S.playerCapital ? renderPlayerCapDetail() : ''}</div>
+        <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
+}
+
+function renderPlayerCapDetail() {
+    const cap = S.playerCapital; if (!cap) return '';
+    const adj = cap._adj || cap.adjOptions[0];
+    return `<div class="capital-card">
+        <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[S.playerColor]}"></div>
+        <div class="cap-name">${(S.playerColor||'').toUpperCase()} — ${cap.name}</div></div>
+        <div class="cap-body">
+            📍 <b>${cap.name}:</b> place units here<br>
+            📍 <b>${adj.name}:</b> remaining units go here<br>
+            <span class="cap-note">You start with 10 Footmen total. Split them between your capital and adjacent territory however you like (no minimum).</span>
+            🏰 <b>1 Castle</b> on ${cap.name}<br>👑 <b>2 Crown tokens</b> on ${cap.name}
+        </div></div>
+        <button class="btn-primary" onclick="wizNext()">UNITS PLACED →</button>`;
+}
+
+function pickPlayerCap(name) {
+    S.playerCapital = CAPITALS.find(c=>c.name===name);
+    resolveAdj(S.playerCapital);
+    renderPlayerCapital(document.getElementById('wiz-body'));
+}
+
+function renderSecondary(el) {
+    const autos = autoColors();
+    const fi = S.firstAuto || autos[0];
+    const orderedAutos = [fi, ...autos.filter(c=>c!==fi)];
+    const takenNames = new Set([...autos.map(c=>S.autoCapitals[c].name), S.playerCapital?.name].filter(Boolean));
+    const remaining = CAPITALS.filter(c=>!takenNames.has(c.name));
+    const assignOrder = [...orderedAutos, S.playerColor];
+    S.autoSecondary = {}; S.playerSecondary = null;
+    assignOrder.forEach((color, i) => {
+        const cap = remaining[i];
+        if (!cap) return;
+        if (color === S.playerColor) S.playerSecondary = cap;
+        else S.autoSecondary[color] = cap;
+    });
+    const coinsData = [...autos, S.playerColor].map(color => {
+        const primary   = color === S.playerColor ? S.playerCapital     : S.autoCapitals[color];
+        const secondary = color === S.playerColor ? S.playerSecondary   : S.autoSecondary[color];
+        return { color, primary, secondary, total: 5+(primary?.tax||0)+(secondary?.tax||0) };
+    });
+    S.coinsData = coinsData;
+    el.innerHTML = `
+        <div class="setup-title">Secondary Capitals & Starting Coins</div>
+        <div class="setup-sub">The remaining ${remaining.length} capitals are now distributed — same unit placement, but <b>no castle</b>. Each player's coin total is shown below.</div>
+        ${coinsData.map(d=>`<div class="capital-card">
+            <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[d.color]}"></div>
+            <div class="cap-name">${d.color.toUpperCase()}</div></div>
+            <div class="cap-body">
+                🏛 <b>Primary:</b> ${d.primary?.name||'?'} (Tax ${d.primary?.tax||'?'})<br>
+                🏛 <b>Secondary:</b> ${d.secondary?.name||'?'} (Tax ${d.secondary?.tax||'?'}) <i>— no castle</i><br>
+                💰 <b>Starting coins: 5 + ${d.primary?.tax||0} + ${d.secondary?.tax||0} = <span style="color:var(--accent);font-size:1.1em;">${d.total}</span></b>
+            </div></div>`).join('')}
+        <div class="info-box">Place the secondary capital units on the board (same counts as shown in Step 3), set each player's coin count, and give each player their 10 Footmen, 4 Archers, 4 Cavalry, 2 Siege Engines for reserves.</div>
+        <button class="btn-primary" onclick="launchGame()">✓ SETUP COMPLETE — START GAME →</button>
+        <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
+}
+
+function renderReady(el) { launchGame(); }
+
+// ================================================================
+// GAME STATE & INIT
+// ================================================================
+let G = {};
+
+function launchGame() {
+    const autos = autoColors();
+    const fi = S.firstAuto || autos[0];
+    const seating = [fi, ...autos.filter(c=>c!==fi), S.playerColor];
+    const coins = {};
+    S.coinsData.forEach(d => { coins[d.color] = d.total; });
+    G = {
+        round:1, step:1, slot:0,
+        firstPlayer:fi, pendingFirst:null,
+        seating, decks:{}, hand:{}, coins,
+        revealed:false, currentSteps:[], checkedSteps:new Set(),
+        logHistory:[]
+    };
+    autos.forEach(c => { G.decks[c]=[]; G.hand[c]=[]; });
+    prepareRound(true);
+    addLog('Game started — Round 1 begins.');
+    document.getElementById('setup-screen').style.display = 'none';
+    document.getElementById('game-screen').style.display  = 'block';
+    render();
+}
+
+function shuffle(arr) {
+    const a=[...arr];
+    for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+    return a;
+}
+function autoColors_g() { return G.seating.filter(c=>c!==S.playerColor); }
+function cName(c) { return c===S.playerColor ? 'You' : c.charAt(0).toUpperCase()+c.slice(1); }
+
+function refillDeck(c) { G.decks[c]=shuffle([...DECK_BASE]); addLog(`${cName(c)} deck reshuffled.`); }
+
+function prepareRound(silent=false) {
+    if (G.pendingFirst !== null) {
+        G.firstPlayer = G.pendingFirst; G.pendingFirst = null;
+        const fi = G.firstPlayer;
+        G.seating = [fi, ...G.seating.filter(c=>c!==fi)];
+        G.slot = 0;
+        if(!silent) addLog(`${cName(fi)} is now First Player.`);
+    }
+    autoColors_g().forEach(c => {
+        if(G.decks[c].length < 2) refillDeck(c);
+        G.hand[c] = [G.decks[c].pop(), G.decks[c].pop()];
+    });
+    if(!silent) addLog(`Round ${G.round} — cards dealt.`);
+}
+
+function getTurnOrder() {
+    const si = G.seating.indexOf(G.firstPlayer);
+    return [0,1,2,3].map(i=>G.seating[(si+i)%4]);
+}
+function activeColor() { return getTurnOrder()[G.slot]; }
+
+function addLog(msg) {
+    G.logHistory.unshift(msg);
+    if(G.logHistory.length>6) G.logHistory.pop();
+    const el = document.getElementById('action-log');
+    if(el) el.innerHTML = G.logHistory.slice(0,3).map((m,i)=>
+        `<div class="log-entry ${i>0?'old':''}">${i===0?'▶ ':'  '}${m}</div>`).join('');
+}
+
+function addCoin(c, v) {
+    G.coins[c] = Math.max(0, G.coins[c]+v);
+    render();
+    if(G.revealed && activeColor()!==S.playerColor) {
+        const card = G.hand[activeColor()]?.[G.step-1];
+        if(card) regenerateSteps(card, activeColor());
+    }
+}
+
+function setFirst(c) {
+    G.pendingFirst = c;
+    addLog(`${cName(c)} will be First Player next round (KING ME pending).`);
+    render();
+}
+
+function rollDie() {
+    const faces=['⚀','⚁','⚂','⚃','⚄','⚅'];
+    const val=Math.floor(Math.random()*6)+1;
+    const el=document.getElementById('die-result');
+    el.style.opacity='0'; el.style.transform='scale(1.4) rotate(20deg)';
+    setTimeout(()=>{ el.textContent=faces[val-1]; el.style.opacity='1'; el.style.transform='scale(1)'; },100);
+}
+
+function toggleRef(id) {
+    const body=document.getElementById(id);
+    const btn=body.previousElementSibling;
+    body.classList.toggle('open'); btn.classList.toggle('open');
+}
+
+// ================================================================
+// REVEAL & STEPS
+// ================================================================
+function revealAction() {
+    const color = activeColor();
+    const card  = G.hand[color]?.[G.step-1];
+    if(!card) { addLog('No card available.'); return; }
+    const cardEl = document.getElementById('card-display');
+    cardEl.className = 'action-card revealed';
+    cardEl.innerHTML = card+`<div class="card-sub">${cName(color)} · ${G.coins[color]} coins</div>`;
+    G.revealed = true;
+    document.getElementById('reveal-btn').style.display = 'none';
+    addLog(`${cName(color)}: "${card}" (${G.coins[color]} coins)`);
+    regenerateSteps(card, color);
+}
+
+function regenerateSteps(card, color) {
+    G.currentSteps = generateSteps(card, color, G.coins[color]);
+    G.checkedSteps = new Set();
+    renderSteps();
+    document.getElementById('complete-btn').disabled = true; // always start locked
+}
+
+function toggleStep(i) {
+    if(G.currentSteps[i] === null) return; // divider — not toggleable
+    if(G.checkedSteps.has(i)) G.checkedSteps.delete(i); else G.checkedSteps.add(i);
+    renderSteps();
+    const checkableCount = G.currentSteps.filter(s=>s!==null).length;
+    document.getElementById('complete-btn').disabled = (G.checkedSteps.size < checkableCount);
+}
+
+function renderSteps() {
+    const panel=document.getElementById('steps-panel');
+    const list=document.getElementById('steps-list');
+    if(!G.currentSteps.length) { panel.style.display='none'; return; }
+    panel.style.display='block';
+    const color=activeColor();
+    const header=document.getElementById('steps-header');
+    header.textContent=`STEPS TO PERFORM — ${color.toUpperCase()}`;
+    header.style.background=COLOR_HEX[color]||'var(--accent)';
+    const pct = G.currentSteps.length ? Math.round((G.checkedSteps.size/G.currentSteps.length)*100) : 0;
+    document.getElementById('steps-progress-fill').style.width = pct+'%';
+    let stepNum = 0;
+    list.innerHTML = G.currentSteps.map((s,i)=>{
+        if(s === null) {
+            return `<div class="step-divider">2nd Action — Expand or Maneuver</div>`;
+        }
+        stepNum++;
+        const checked=G.checkedSteps.has(i);
+        return `<div class="step-item ${checked?'checked':''}" onclick="toggleStep(${i})">
+            <div class="step-checkbox">${checked?'✓':''}</div>
+            <div class="step-num">${stepNum}</div>
+            <div class="step-text">${s}</div>
+        </div>`;
+    }).join('');
+}
+
+// ================================================================
+// STEP GENERATOR
+// ================================================================
+function generateSteps(card, color, coins) {
+    const C = cName(color);
+    const steps = [];
+
+    const EXPAND = [
+        `<b>EXPAND — Can ${C} move any army one territory into a city</b> (own, neutral, or enemy)? If YES → continue below. If NO → skip to the POSITION step (step 4).`,
+        `<b>Choose target city:</b> the reachable city with the <b>highest Tax value</b>. Move <b>${C}'s largest army</b> that can reach it in one step.
+            <span class="if-tie">Tie on Tax value → choose city with fewest defenders. Tie on army size → closest army. Still tied → roll die.</span>
+            <span class="rule-note">⚠ Attacking a castled city requires a Siege Engine in the army. Check the Arrival Minima table (reference panel below) before attacking.</span>`,
+        `<b>Execute the move.</b> Leave-behind when departing: a <b>city</b> → leave units equal to its Tax value; a <b>non-urban territory</b> → leave 1 unit. Leave Footmen first → Archers → Siege Engines → Cavalry. ✓ when move is done.`,
+        `<b>POSITION (no city reachable in one step):</b> Instead, move <b>${C}'s largest army</b> one step toward the <b>highest-Tax approachable city</b>. Apply same leave-behind rules. ✓ when done — skip step 5.`,
+        `<b>MANEUVER (fallback — if no move of any kind is possible):</b>
+            <br>• If a <b>${C} territory is under attack:</b> move the army that provides the most reinforcement there. Priority: highest-Tax territory → can receive most reinforcement → attacked by most enemy units → roll die.
+            <br>• If <b>nothing is under attack:</b> reinforce the ${C} army adjacent to the highest-Tax enemy city. Tie: fewest defenders at that city → roll die.`,
+    ];
+
+    if (card === "TAX OR SPEND") {
+        if (coins <= 4) {
+            steps.push(`<b>MODE: TAX</b> — ${C} has ${coins} coins (≤ 4), so they Tax instead of Spend.`);
+            steps.push(`On the board, look at each of <b>${C}'s cities</b>. For each, calculate its <b>Tax yield:</b><br>
+                Count <b>+1</b> for every connected non-urban territory ${C} owns, then <b>add the Tax value</b> printed on each connected city ${C} owns (that is also connected via supply line).
+                <span class="if-tie">Tip: use the supply-line rules you already know from the base game to determine "connected."</span>`);
+            steps.push(`<b>Choose the city with the highest Tax yield</b> and collect that many coins. Tap <b>[+]</b> in the bar above to update ${C}'s coin count.
+                <span class="if-tie">Tie → the city with a Tax Bonus tile wins. Still tied → roll die (odd = left option, even = right option).</span>`);
+        } else {
+            const { cost, items } = getBestSpend(coins);
+            const hasCastle = items.includes("Castle");
+            const hasSiege  = items.includes("Siege Engine");
+            steps.push(`<b>MODE: SPEND</b> — ${C} has ${coins} coins (≥ 5), so they Spend. They will purchase:<span class="buy-highlight">${items}</span>Cost: <b>${cost} coins.</b> Tap <b>[−]</b> in the bar above ${coins - cost >= 0 ? `(${cost} times)` : ''} to subtract the cost. ${C} keeps any leftover coins.
+                <span class="rule-note">If a figure type has run out: substitute 2 Footmen ↔ 1 Archer. Automatons never buy Crown Cards unless there are no Castles left in supply — then they buy 1 Crown Card + 2 Footmen.</span>`);
+            if (hasCastle) {
+                steps.push(`<b>Place the Castle:</b> on ${C}'s city with the <b>highest Tax value</b> that does not already have a castle.
+                    <span class="if-tie">Tie → city with fewest units. Still tied → roll die.</span>`);
+            }
+            steps.push(`<b>Place the units</b> one at a time. Start with ${C}'s <b>highest-Tax city</b> and work down to lower-Tax cities. When placing at the same city, use the best quality first: <b>Cavalry → Archers → Footmen.</b>
+                <span class="if-tie">Tie on Tax value → city with fewest total units gets the next unit. Still tied → roll die.</span>`);
+            if (hasSiege) {
+                steps.push(`<b>Place the Siege Engine:</b> on a territory ${C} owns that is <b>closest (fewest moves) to an enemy castle.</b>
+                    <span class="if-tie">Tie → closest to enemy castle on the highest-Tax city. Tie → closest to enemy castle with fewest units there. Still tied → roll die.</span>`);
+            }
+        }
+        return steps;
+    }
+
+    if (card === "EXPAND OR MANEUVER") { steps.push(...EXPAND); return steps; }
+
+    if (card === "SPLIT EXPAND OR MANEUVER") {
+        steps.push(`<b>SPLIT EXPAND — Can ${C} move any one army up to 2 spaces to enter a city?</b> (${C} cannot pass through an enemy-held territory — it must stop there instead.) If YES → continue. If NO → go to step 4 (Maneuver).`);
+        steps.push(`<b>Choose target city</b> (reachable in 1 or 2 steps): the city with the <b>highest Tax value.</b> Choose the ${C} army that will <b>arrive with the most units</b> after making the move.
+            <span class="if-tie">Tie on Tax → city with fewest defenders. Tie on arriving units → roll die.</span>
+            <span class="rule-note">⚠ Attacking a castled city requires a Siege Engine in the army. Check the Arrival Minima table (reference panel) before attacking.</span>`);
+        steps.push(`<b>Execute the move</b> (1 or 2 steps). Apply leave-behind at <b>each territory departed:</b> cities → leave Tax value in units; non-urban → leave 1 unit. Priority: Footmen → Archers → Siege Engines → Cavalry.`);
+        steps.push(`<b>MANEUVER (fallback — if no city reachable in ≤ 2 steps or army too small to attack):</b><br>
+            Same as EXPAND maneuver: reinforce attacked territory (highest Tax priority) — or, if nothing under attack, reinforce ${C}'s army adjacent to the highest-Tax enemy city.`);
+        return steps;
+    }
+
+    if (card === "FORTIFY / EXPAND OR MANEUVER") {
+        steps.push(`<b>FORTIFY — resolved FIRST.</b> Add <b>+3 Footmen</b> to one of ${C}'s cities, OR <b>+4 Footmen</b> to a location where ${C} has a castle. Find the qualifying location with the <b>fewest total units.</b>
+            <span class="if-tie">Tie → highest Tax value wins. Tie → a Capital beats a regular city. Still tied → roll die.</span>`);
+        steps.push(`Place the Footmen from the supply on that location now. ✓ when done.`);
+        steps.push(null); // ── section divider ──
+        steps.push(...EXPAND);
+        return steps;
+    }
+
+    if (card === "SIEGE ASSAULT / EXPAND OR MANEUVER") {
+        steps.push(`<b>SIEGE ASSAULT — resolved FIRST.</b> Does ${C} have at least 1 Siege Engine anywhere on the board? If <b>YES</b> → continue with steps 2–3. If <b>NO</b> → skip directly to step 4 (Expand/Maneuver).`);
+        steps.push(`<b>Choose the Siege target:</b> the adjacent enemy territory with the <b>most units.</b>
+            <span class="if-tie">Tie → the enemy colour with the most <em>total units on the entire board</em> is targeted. Still tied → roll die.</span>`);
+        steps.push(`<b>Resolve the siege combat</b> using the base game rules (Siege Engine fires first). ✓ when combat is resolved.`);
+        steps.push(null); // ── section divider ──
+        steps.push(...EXPAND);
+        return steps;
+    }
+
+    if (card === "KING ME") {
+        steps.push(`<b>KING ME:</b> ${C} claims the First Player marker. Tap the <b>👑 crown icon</b> on ${C}'s tile in the player bar above to mark them as the next First Player.`);
+        steps.push(`The change takes effect at the <b>start of next round</b> (after all current-round cards and all battles are fully resolved). The crown will pulse to show it is pending. ✓ when you've tapped the crown.`);
+        return steps;
+    }
+
+    steps.push(`Unknown card: "${card}". Check the rulebook.`);
+    return steps;
+}
+
+// ================================================================
+// ADVANCE TURN
+// ================================================================
+function advanceTurn() {
+    G.revealed = false; G.currentSteps = []; G.checkedSteps = new Set();
+    G.slot++;
+    if (G.slot >= 4) {
+        G.slot = 0;
+        if (G.step === 1) {
+            G.step = 2;
+            addLog('— All players finished Action 1. Now Action 2. —');
+        } else {
+            G.step = 1; G.round++;
+            prepareRound(false);
+        }
+    }
+    render();
+}
+
+function confirmReset() {
+    if(!confirm('Reset entire game and return to setup?')) return;
+    G = {};
+    Object.assign(S, { step:0, playerColor:null, firstAuto:null, autoCapitals:{}, playerCapital:null,
+                       autoSecondary:{}, playerSecondary:null, takenAdj:new Set(), shuffledCaps:[], coinsData:[] });
+    document.getElementById('game-screen').style.display  = 'none';
+    document.getElementById('setup-screen').style.display = 'block';
+    showStep(0);
+}
+
+// ================================================================
+// RENDER
+// ================================================================
+function render() {
+    const order  = getTurnOrder();
+    const active = activeColor();
+    const bar    = document.getElementById('player-bar');
+    bar.innerHTML = '';
+    order.forEach((c,i) => {
+        const isActive  = i===G.slot;
+        const isFirst   = c===G.firstPlayer;
+        const isPending = c===G.pendingFirst;
+        const isHuman   = c===S.playerColor;
+        const tile      = document.createElement('div');
+        tile.className  = `player-tile ${isActive?'active':''} ${isFirst?'is-first':''} ${isPending?'is-pending':''}`;
+        tile.style.background = `var(--p-${c})`;
+        // Light backgrounds need dark text
+        const lightColors = ['blue', 'green'];
+        const textColor = lightColors.includes(c) ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
+        const subTextColor = lightColors.includes(c) ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
+        tile.style.color = textColor;
+        const used  = isHuman ? '—' : `${10-G.decks[c].length}/10`;
+        const mode  = (!isHuman && G.coins[c]<=4)
+            ? '<span class="coin-threshold mode-tax">TAX</span>'
+            : '<span class="coin-threshold mode-spend">SPEND</span>';
+        tile.innerHTML = `
+            <div class="p-name"><span class="crown-badge" onclick="setFirst('${c}')" title="KING ME: set as next First Player">👑</span>${c.toUpperCase()}</div>
+            <div class="coin-row">
+                <button class="coin-btn" onclick="addCoin('${c}',-1)">−</button>
+                <span class="coin-count">${G.coins[c]}</span>
+                <button class="coin-btn" onclick="addCoin('${c}',+1)">+</button>
+            </div>
+            ${isHuman ? `<span style="font-size:0.58em;color:${subTextColor};">YOU</span>` : mode}
+            <div class="deck-pip">${used}</div>`;
+        bar.appendChild(tile);
+    });
+
+    document.getElementById('round-display').textContent = `ROUND ${G.round}`;
+    document.getElementById('step-display').textContent  = `ACTION ${G.step} of 2`;
+
+    const isHuman = active===S.playerColor;
+    document.getElementById('ai-view').style.display    = isHuman ? 'none' : 'block';
+    document.getElementById('human-view').style.display = isHuman ? 'block' : 'none';
+
+    if (!G.revealed) {
+        const cardEl = document.getElementById('card-display');
+        cardEl.className = 'action-card unrevealed';
+        cardEl.innerHTML = `Tap button to reveal<br><span class="card-sub">${cName(active)}'s card is face-down</span>`;
+        const revBtn = document.getElementById('reveal-btn');
+        if(revBtn) revBtn.style.display='block';
+        document.getElementById('steps-panel').style.display='none';
+        document.getElementById('complete-btn').disabled = !isHuman;
+    }
+    if(isHuman) document.getElementById('complete-btn').disabled = false;
+}
+
+// ================================================================
+// INIT
+// ================================================================
+showStep(0);
+</script>
+</body>
+</html>
