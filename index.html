@@ -102,9 +102,9 @@
         .action-card.revealed  { border-color: var(--accent); }
         .action-card.unrevealed{ color: #bbb; border-color: #ccc; }
         .card-sub { font-size: 0.58em; color: var(--ink-light); font-family: 'Crimson Text',serif; font-weight: 400; margin-top: 4px; }
-        .human-banner { border: 3px dashed var(--p-blue); border-radius: 10px; padding: 22px 16px;
+        .human-banner { border: 3px dashed var(--player-color); border-radius: 10px; padding: 22px 16px;
                         text-align: center; background: rgba(26,95,168,0.06); margin-bottom: 12px; }
-        .human-banner h2 { font-family: 'Cinzel',serif; color: var(--p-blue); margin: 0 0 6px; font-size: 1.2em; }
+        .human-banner h2 { font-family: 'Cinzel',serif; color: var(--player-color); margin: 0 0 6px; font-size: 1.2em; }
         .human-banner p { margin: 0; color: var(--ink-light); font-size: 0.9em; line-height: 1.55; }
 
         /* STEPS */
@@ -228,7 +228,19 @@
         .be-odot.sel { border-color:var(--ink); box-shadow:0 0 0 2px white; transform:scale(1.15); }
         .be-castle-btn { font-size:0.78em; padding:4px 9px; border:1px solid var(--border-light); border-radius:5px; background:var(--parchment-dark); cursor:pointer; font-family:'Cinzel',serif; }
         .be-castle-btn.on { background:rgba(200,149,42,0.15); border-color:var(--gold); color:#7a5a00; }
-        .ub { background:rgba(0,0,0,0.08); border:1px solid rgba(0,0,0,0.15); border-radius:3px; width:20px; height:20px; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center; }
+        /* Full board view */
+        .fbs-section { margin-bottom:14px; }
+        .fbs-section-hdr { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px; font-family:'Cinzel',serif; font-size:0.78em; font-weight:700; letter-spacing:0.06em; color:white; margin-bottom:4px; }
+        .fbs-row { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:1px solid rgba(0,0,0,0.05); font-size:0.83em; }
+        .fbs-row:last-child { border-bottom:none; }
+        .fbs-row .fr-name { font-family:'Cinzel',serif; font-weight:700; color:var(--ink); flex:1; }
+        .fbs-row .fr-sub  { font-size:0.8em; color:var(--ink-light); flex:1; }
+        .fbs-row .fr-units { font-size:0.82em; color:var(--ink); text-align:right; }
+        .fbs-empty { color:var(--ink-light); font-style:italic; padding:6px 10px; font-size:0.82em; }
+        .fbs-back-btn { display:flex; align-items:center; gap:5px; background:none; border:none; font-family:'Cinzel',serif; font-size:0.82em; color:var(--accent); cursor:pointer; padding:0 0 10px; font-weight:700; }
+        .btn-full-board { width:100%; margin-top:10px; padding:11px; background:var(--ink); color:var(--gold-light); border:none; border-radius:7px; font-family:'Cinzel',serif; font-size:0.82em; font-weight:700; cursor:pointer; letter-spacing:0.04em; }
+        .btn-full-board:active { opacity:0.85; }
+                .ub { background:rgba(0,0,0,0.08); border:1px solid rgba(0,0,0,0.15); border-radius:3px; width:20px; height:20px; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center; }
         .be-terr-item.be-moved { opacity:0.45; background:rgba(0,0,0,0.04); cursor:default; }
         .be-terr-item.be-moved .bt-name { text-decoration: line-through; }
         /* Unit type steppers */
@@ -428,24 +440,87 @@
         .ht-step:last-child { border-bottom: none; }
         .ht-step.done { background: rgba(30,126,68,0.07); }
         .ht-step .ht-cb {
-            width: 26px; height: 26px; border: 2px solid #a0b8d8; border-radius: 6px;
+            width: 26px; height: 26px; border: 2px solid var(--player-color); border-radius: 6px;
             flex-shrink: 0; display: flex; align-items: center; justify-content: center;
             font-size: 15px; margin-top: 2px; transition: all 0.15s;
         }
         .ht-step.done .ht-cb { background: var(--p-green); border-color: var(--p-green); color: white; }
         .ht-step .ht-text { font-size: 0.88em; line-height: 1.62; color: var(--ink); flex: 1; }
-        .ht-step .ht-text b { color: var(--p-blue); }
+        .ht-step .ht-text b { color: var(--player-color); }
         .ht-open-board {
             display: flex; align-items: center; gap: 8px; padding: 10px 14px;
-            background: rgba(26,95,168,0.07); border: 2px solid var(--p-blue);
+            background: rgba(0,0,0,0.04); border: 2px solid var(--player-color);
             border-radius: 8px; font-family: 'Cinzel',serif; font-size: 0.88em;
-            font-weight: 700; color: var(--p-blue); cursor: pointer;
+            font-weight: 700; color: var(--player-color); cursor: pointer;
             margin: 8px 0; transition: background 0.15s; width: 100%;
         }
         .ht-open-board:active { background: rgba(26,95,168,0.15); }
         .ht-open-board.done-board { background: rgba(30,126,68,0.1); border-color: var(--p-green); color: #1e7e44; }
         .ht-progress { background: rgba(0,0,0,0.08); height: 4px; border-radius: 0 0 6px 6px; }
-        .ht-progress-fill { height: 100%; background: var(--p-blue); border-radius: 0 0 6px 6px; transition: width 0.2s; }
+        .ht-progress-fill { height: 100%; background: var(--player-color); border-radius: 0 0 6px 6px; transition: width 0.2s; }
+
+        
+        /* Territory edit modal */
+        .terr-edit-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,0.75); z-index:400; overflow-y:auto; padding:10px; }
+        .terr-edit-overlay.open { display:block; }
+        .terr-edit-modal { background:var(--parchment); max-width:480px; margin:0 auto; border:3px solid var(--border); border-radius:8px; overflow:hidden; }
+        .terr-edit-hdr { background:var(--ink); color:var(--gold-light); padding:11px 16px; display:flex; justify-content:space-between; align-items:center; font-family:'Cinzel',serif; font-weight:700; font-size:0.95em; }
+        .terr-edit-close { background:none; border:none; color:var(--gold-light); font-size:1.4em; cursor:pointer; }
+        .terr-edit-body { padding:14px; }
+        .te-section { margin-bottom:14px; }
+        .te-label { font-family:'Cinzel',serif; font-size:0.72em; font-weight:700; letter-spacing:0.08em; color:var(--ink-light); text-transform:uppercase; margin-bottom:8px; }
+        .te-owner-row { display:flex; gap:8px; flex-wrap:wrap; }
+        .te-owner-btn { flex:1; min-width:60px; padding:8px 4px; border:3px solid transparent; border-radius:7px; font-family:'Cinzel',serif; font-size:0.72em; font-weight:700; cursor:pointer; text-align:center; transition:0.12s; }
+        .te-owner-btn.sel { border-color:var(--ink); box-shadow:0 0 0 2px white, 0 0 0 4px var(--ink); }
+        .te-units-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+        .te-unit-row { display:flex; align-items:center; justify-content:space-between; background:#fffdf5; border:1px solid var(--border-light); border-radius:7px; padding:8px 10px; }
+        .te-unit-label { font-family:'Cinzel',serif; font-size:0.82em; font-weight:700; }
+        .te-unit-sub { font-size:0.7em; color:var(--ink-light); }
+        .te-stepper { display:flex; align-items:center; gap:6px; }
+        .te-btn { width:28px; height:28px; border-radius:5px; border:1px solid var(--border); background:var(--parchment-dark); font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-weight:700; }
+        .te-val { font-family:'Cinzel',serif; font-size:1.1em; font-weight:700; min-width:24px; text-align:center; }
+        .te-castle-row { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:#fffdf5; border:1px solid var(--border-light); border-radius:7px; }
+        .te-castle-label { font-family:'Cinzel',serif; font-size:0.88em; font-weight:700; }
+        .te-castle-toggle { padding:7px 16px; border-radius:6px; border:2px solid var(--border); font-family:'Cinzel',serif; font-size:0.82em; font-weight:700; cursor:pointer; background:var(--parchment-dark); transition:0.12s; }
+        .te-castle-toggle.on { background:rgba(200,149,42,0.15); border-color:var(--gold); color:#7a5a00; }
+        .te-save-btn { width:100%; margin-top:14px; padding:14px; background:var(--accent); color:white; border:none; border-radius:8px; font-family:'Cinzel',serif; font-size:0.95em; font-weight:700; cursor:pointer; }
+        .te-save-btn:active { opacity:0.85; }
+        .te-total-badge { font-size:0.8em; color:var(--ink-light); font-style:italic; }
+
+        
+        /* ===== COMBAT PHASE SCREEN ===== */
+        .cp-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(10,0,0,0.92); z-index:350; overflow-y:auto; padding:10px; }
+        .cp-overlay.open { display:block; }
+        .cp-modal { background:var(--parchment); max-width:680px; margin:0 auto; border:3px solid var(--accent); border-radius:8px; overflow:hidden; box-shadow:0 0 60px rgba(200,0,0,0.5); }
+        .cp-header { background:var(--accent); color:white; padding:14px 18px; font-family:'Cinzel',serif; font-weight:700; font-size:1.1em; letter-spacing:0.04em; text-align:center; }
+        .cp-subhdr { background:rgba(139,26,26,0.08); padding:10px 16px; font-size:0.82em; color:var(--ink-light); text-align:center; border-bottom:1px solid var(--border-light); }
+        .cp-body { padding:12px; }
+        .cp-battle { border:2px solid var(--border-light); border-radius:8px; margin-bottom:10px; overflow:hidden; background:#fffdf5; }
+        .cp-battle.resolved { opacity:0.55; }
+        .cp-battle.active { border-color:var(--accent); background:#fff; box-shadow:0 2px 12px rgba(139,26,26,0.15); }
+        .cp-battle-hdr { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--border-light); }
+        .cp-battle-title { font-family:'Cinzel',serif; font-size:0.88em; font-weight:700; color:var(--ink); }
+        .cp-battle-sub { font-size:0.75em; color:var(--ink-light); margin-top:1px; }
+        .cp-battle-badge { font-size:0.72em; padding:3px 9px; border-radius:20px; font-family:'Cinzel',serif; font-weight:700; }
+        .cp-battle-badge.pending { background:rgba(139,26,26,0.1); color:var(--accent); }
+        .cp-battle-badge.done { background:rgba(30,126,68,0.12); color:#1e7e44; }
+        .cp-battle-badge.auto { background:rgba(0,0,0,0.07); color:var(--ink-light); }
+        .cp-auto-log { padding:10px 14px; font-size:0.8em; color:var(--ink-light); line-height:1.7; }
+        .cp-human-panel { padding:12px 14px; }
+        .cp-sides { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+        .cp-side { flex:1; border-radius:7px; padding:10px 12px; color:white; text-align:center; }
+        .cp-side .cps-label { font-size:0.7em; font-family:'Cinzel',serif; font-weight:700; letter-spacing:0.06em; opacity:0.8; }
+        .cp-side .cps-name  { font-family:'Cinzel',serif; font-size:0.95em; font-weight:700; margin:3px 0; }
+        .cp-side .cps-units { font-size:0.8em; opacity:0.9; }
+        .cp-vs { font-family:'Cinzel',serif; font-size:1.2em; font-weight:700; color:var(--accent); flex-shrink:0; }
+        .cp-result-banner { text-align:center; padding:12px; border-radius:7px; margin-bottom:10px; font-family:'Cinzel',serif; font-size:1em; font-weight:700; }
+        .cp-result-banner.win  { background:rgba(30,126,68,0.12); color:#1e7e44; border:2px solid #1e7e44; }
+        .cp-result-banner.loss { background:rgba(139,26,26,0.1); color:var(--accent); border:2px solid var(--accent); }
+        .cp-result-banner.draw { background:rgba(200,149,42,0.12); color:var(--gold); border:2px solid var(--gold); }
+        .cp-end-btn { width:100%; padding:16px; background:var(--ink); color:var(--gold-light); border:none; border-radius:8px; font-family:'Cinzel',serif; font-size:1em; font-weight:700; cursor:pointer; margin-top:4px; letter-spacing:0.04em; }
+        .cp-end-btn:active { opacity:0.85; }
+        .cp-end-btn:disabled { opacity:0.4; cursor:not-allowed; }
+        .cp-next-btn { width:100%; padding:14px; background:var(--accent); color:white; border:none; border-radius:8px; font-family:'Cinzel',serif; font-size:0.95em; font-weight:700; cursor:pointer; margin-top:8px; }
 
         </style>
 </head>
@@ -550,6 +625,9 @@
             <button class="btn-advance" id="complete-btn" onclick="advanceTurn()" disabled>
                 ✓ COMPLETE TURN — NEXT PLAYER
             </button>
+            <div id="stuck-hint" style="display:none;text-align:center;margin-top:4px;">
+                <button onclick="forceAdvance()" style="background:none;border:none;color:var(--ink-light);font-size:0.75em;cursor:pointer;text-decoration:underline;">Stuck? Force advance turn →</button>
+            </div>
             <button class="btn-reset" onclick="confirmReset()">↺ Full Reset / Return to Setup</button>
         </div>
     </div>
@@ -1374,6 +1452,7 @@ function cName(c) { return c===S.playerColor ? 'You' : c.charAt(0).toUpperCase()
 function refillDeck(c) { G.decks[c]=shuffle([...DECK_BASE]); addLog(`${cName(c)} deck reshuffled.`); }
 
 function prepareRound(silent=false) {
+    G.roundCombats = []; // fresh each round
     if (G.pendingFirst !== null) {
         G.firstPlayer = G.pendingFirst; G.pendingFirst = null;
         const fi = G.firstPlayer;
@@ -1439,11 +1518,23 @@ function revealAction() {
 }
 
 function regenerateSteps(card, color) {
-    G._stepCoinEffects = {}; // reset per-step coin effects
-    G.currentSteps = generateSteps(card, color, G.coins[color]);
+    G._stepCoinEffects = {};
+    resetStuckTimer();
+    try {
+        G.currentSteps = generateSteps(card, color, G.coins[color]);
+    } catch(e) {
+        console.error('generateSteps crashed:', e);
+        G.currentSteps = [
+            `<b>⚠ Step generation error for "${card}".</b> You can still complete this turn manually. Error: ${e.message}`
+        ];
+    }
+    if (!G.currentSteps || !G.currentSteps.length) {
+        G.currentSteps = [`<b>${card}</b> — no specific steps generated. Resolve per rulebook, then complete turn.`];
+    }
     G.checkedSteps = new Set();
-    renderSteps();
-    document.getElementById('complete-btn').disabled = true; // always start locked
+    try { renderSteps(); } catch(e) { console.error('renderSteps crashed:', e); }
+    const btn = document.getElementById('complete-btn');
+    if (btn) btn.disabled = true;
 }
 
 function toggleStep(i) {
@@ -1477,13 +1568,15 @@ function toggleStep(i) {
 
     renderSteps();
     const checkableCount = G.currentSteps.filter(s=>s!==null).length;
-    document.getElementById('complete-btn').disabled = (G.checkedSteps.size < checkableCount);
+    const _cb1 = document.getElementById('complete-btn');
+    if(_cb1) _cb1.disabled = (G.checkedSteps.size < checkableCount);
 }
 
 function renderSteps() {
     const panel=document.getElementById('steps-panel');
     const list=document.getElementById('steps-list');
-    if(!G.currentSteps.length) { panel.style.display='none'; return; }
+    if(!panel || !list) return; // DOM not ready
+    if(!G.currentSteps || !G.currentSteps.length) { panel.style.display='none'; return; }
     panel.style.display='block';
     const color=activeColor();
     const header=document.getElementById('steps-header');
@@ -1676,6 +1769,30 @@ function generateSteps(card, color, coins) {
     return steps;
 }
 
+// Combat-required step — rendered inline in the checklist
+function renderCombatDialog(move) {
+    if (!move || !move.from || !move.to) return '';
+    // Queue this attack for the Combat Phase at end of round
+    if (!G.roundCombats) G.roundCombats = [];
+    // Avoid duplicates
+    const already = G.roundCombats.some(c => c.from===move.from && c.to===move.to && c.color===move.color);
+    if (!already) G.roundCombats.push({ ...move });
+    const defOwner = G.board[move.to]?.owner || 'neutral';
+    const def = totalUnitCount(move.to);
+    return `<div style="background:rgba(139,26,26,0.06);border:2px solid rgba(139,26,26,0.3);border-radius:8px;padding:10px 14px;font-size:0.87em;">
+        <b style="font-family:Cinzel,serif;color:var(--accent);">⚔ Attack queued for Combat Phase</b><br>
+        <span style="color:var(--ink-light);">${move.movable||totalUnitCount(move.from)} units: <b>${move.from} → ${move.to}</b> · ${def} defenders (${defOwner.toUpperCase()})</span>
+    </div>`;
+}
+
+function findStepIdxContaining(text) {
+    return G.currentSteps.findIndex((s, i) => s && s.includes(text) && !G.checkedSteps.has(i));
+}
+
+function applyCombatAndCheck() { /* replaced by combat subsystem */ }
+function launchCombatFromStep() {} // deprecated — combat is now end-of-round
+function skipCombatStep() {}       // deprecated
+
 // ================================================================
 // ADVANCE TURN
 // ================================================================
@@ -1688,8 +1805,14 @@ function advanceTurn() {
         } else if (mv.type === 'fortify') {
             applyFortify(mv.territory, mv.count);
         } else if (mv.type === 'expand' || mv.type === 'position' || mv.type === 'maneuver') {
-            if (!mv.isEnemy) applyNonCombatMove(mv);
-            // combat moves applied immediately via applyCombatAndCheck
+            if (!mv.isEnemy) {
+                applyNonCombatMove(mv);
+            } else {
+                // Queue for end-of-round Combat Phase
+                if (!G.roundCombats) G.roundCombats = [];
+                const already = G.roundCombats.some(c=>c.from===mv.from&&c.to===mv.to&&c.color===mv.color);
+                if (!already) G.roundCombats.push({ ...mv });
+            }
         }
     }
     G.pendingMoves = [];
@@ -1697,6 +1820,7 @@ function advanceTurn() {
     G.pendingFortify = null;
     G.humanTurnChecks = new Set();
     G.humanBoardUpdated = false;
+    BE.movedFrom = new Set(); // clear crossed-off territories for new turn
     G.revealed = false; G.currentSteps = []; G.checkedSteps = new Set();
     G.slot++;
     if (G.slot >= 4) {
@@ -1706,10 +1830,16 @@ function advanceTurn() {
             addLog('— All players finished Action 1. Now Action 2. —');
         } else {
             G.step = 1; G.round++;
-            prepareRound(false);
+            // Launch Combat Phase before starting next round
+            if (G.roundCombats && G.roundCombats.length > 0) {
+                openCombatPhase();
+            } else {
+                prepareRound(false);
+            }
         }
     }
     render();
+    resetStuckTimer();
 }
 
 function confirmReset() {
@@ -1777,6 +1907,16 @@ function render() {
         if(revBtn) revBtn.style.display='block';
         document.getElementById('steps-panel').style.display='none';
         document.getElementById('complete-btn').disabled = true;
+    } else {
+        // AI turn, card revealed — always re-render steps panel
+        // (handles case where render() is called after reveal without re-generating steps)
+        if (G.currentSteps && G.currentSteps.length > 0) {
+            renderSteps();
+        } else {
+            // Steps missing entirely — regenerate defensively
+            const card = G.hand[active]?.[G.step-1];
+            if (card) regenerateSteps(card, active);
+        }
     }
 }
 
@@ -1788,8 +1928,8 @@ let BE = { step:'list', fromTerr:null, destTerr:null, moveCount:1 };
 
 function openBoardEditor(focusColor) {
     BE = { step:'list', fromTerr:null, destTerr:null,
-           moveUnits:{F:0,A:0,C:0,S:0},   // per-type move counts
-           movedFrom: BE?.movedFrom || new Set() }; // persist across opens
+           moveUnits:{F:0,A:0,C:0,S:0},
+           movedFrom: BE?.movedFrom || new Set() }; // cleared each turn in advanceTurn()
     const validColors = ['orange','green','purple','blue','neutral'];
     const resolved = (focusColor && validColors.includes(focusColor)) ? focusColor
         : (activeColor ? activeColor() : null) || S.playerColor || 'orange';
@@ -1832,6 +1972,7 @@ function renderBoardEditor() {
 
     if (BE.step === 'list') renderBEList(bs, color);
     else if (BE.step === 'move') renderBEMove(bs, color);
+    else if (BE.step === 'full') renderBEFull(bs);
 }
 
 // ── STEP 1: territory list ────────────────────────────────────────
@@ -1843,7 +1984,10 @@ function renderBEList(bs, color) {
     const content = document.getElementById('board-content');
 
     if (!owned.length) {
-        content.innerHTML = `<p style="padding:20px;text-align:center;color:var(--ink-light);">No territories owned yet.</p>`;
+        content.innerHTML = `<p style="padding:20px;text-align:center;color:var(--ink-light);">No territories owned yet.</p>
+            <button class="btn-full-board" onclick="BE.step='full';renderBoardEditor()">
+                🗺 View Entire Board State
+            </button>`;
         return;
     }
 
@@ -1877,7 +2021,10 @@ function renderBEList(bs, color) {
         </li>`;
     }).join('');
 
-    content.innerHTML = `<ul class="be-terr-list">${rows}</ul>`;
+    content.innerHTML = `<ul class="be-terr-list">${rows}</ul>
+        <button class="btn-full-board" onclick="BE.step='full';renderBoardEditor()">
+            🗺 View Entire Board State
+        </button>`;
 }
 
 // ── STEP 2: pick destination + count ─────────────────────────────
@@ -2000,6 +2147,60 @@ function renderBEMove(bs, color) {
 }
 
 // ── Actions ───────────────────────────────────────────────────────
+
+// ── FULL BOARD VIEW ───────────────────────────────────────────────
+function renderBEFull(bs) {
+    document.getElementById('board-modal-title').textContent = 'Full Board State';
+    const colors = ['orange','green','purple','blue'];
+    const allColors = [...colors, 'neutral'];
+
+    function unitStr(u) {
+        const p = [];
+        if ((u.C||0)>0) p.push(u.C+'C');
+        if ((u.A||0)>0) p.push(u.A+'A');
+        if ((u.F||0)>0) p.push(u.F+'F');
+        if ((u.S||0)>0) p.push(u.S+'S');
+        return p.join('+') || '—';
+    }
+
+    const sections = allColors.map(c => {
+        const territories = Object.keys(bs)
+            .filter(n => bs[n].owner === c)
+            .sort((a,b) => (T[b]?.tax||0)-(T[a]?.tax||0) || a.localeCompare(b));
+
+        const bg = c === 'neutral' ? '#888' : (COLOR_HEX[c] || '#888');
+        const txt = ['orange','green','blue'].includes(c) ? '#000' : '#fff';
+        const label = c === S.playerColor ? c.toUpperCase()+' (YOU)' : c.toUpperCase();
+        const totalUnits = territories.reduce((sum,n)=>sum+unitTotal(bs[n].units),0);
+
+        const rows = territories.length
+            ? territories.map(name => {
+                const b = bs[name];
+                const tax = T[name]?.tax > 0 ? `Tax ${T[name].tax}` : 'non-urban';
+                const castle = b.castle ? ' 🏰' : '';
+                const units = unitStr(b.units);
+                const total = unitTotal(b.units);
+                return `<div class="fbs-row" onclick="openTerrEdit('${name.replace(/'/g,"\\'")}')" style="cursor:pointer;" title="Click to edit">
+                    <div class="fr-name" style="color:var(--accent);text-decoration:underline dotted;">${name}${castle}</div>
+                    <div class="fr-sub">${tax}</div>
+                    <div class="fr-units">${units} <span style="color:var(--ink-light)">(${total})</span></div>
+                </div>`;
+            }).join('')
+            : `<div class="fbs-empty">No territories</div>`;
+
+        return `<div class="fbs-section">
+            <div class="fbs-section-hdr" style="background:${bg};color:${txt};">
+                ${label} &nbsp;·&nbsp; ${territories.length} territories &nbsp;·&nbsp; ${totalUnits} units
+            </div>
+            ${rows}
+        </div>`;
+    }).join('');
+
+    document.getElementById('board-content').innerHTML =
+        `<button class="fbs-back-btn" onclick="BE.step='list';renderBoardEditor()">‹ Back</button>` +
+        sections;
+}
+
 function bePickFrom(name) {
     BE.fromTerr = name;
     BE.destTerr = null;
@@ -2139,7 +2340,15 @@ function tileStyle(color){
 
 // ── OPEN COMBAT ──────────────────────────────────────────────────
 function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
-    if(!G.board[fromTerr]||!G.board[toTerr]){ console.warn('openCombat: bad territory'); return; }
+    if(!G.board[fromTerr]||!G.board[toTerr]){
+        console.warn('openCombat: territory not found in board state', fromTerr, toTerr);
+        // Mark step done anyway so player isn't stuck
+        if(stepIdx >= 0) G.checkedSteps.add(stepIdx);
+        const total = G.currentSteps.filter(s=>s!==null).length;
+        document.getElementById('complete-btn').disabled = (G.checkedSteps.size < total);
+        renderSteps();
+        return;
+    }
     csReset();
     CS.active=true;
     CS.attackerColor=attackerColor; CS.defenderColor=defenderColor;
@@ -2471,13 +2680,15 @@ function csFinalize(attackerWon, finalAtt, finalDef){
 
 function closeCombat(){
     document.getElementById('combat-overlay').classList.remove('open');
-    // Tick off the combat step in the checklist
-    if(CS.pendingStepIdx>=0){
-        G.checkedSteps.add(CS.pendingStepIdx);
-        const total=G.currentSteps.filter(s=>s!==null).length;
-        document.getElementById('complete-btn').disabled=(G.checkedSteps.size<total);
-        renderSteps();
-    }
+    // Tick off the combat step — try pendingStepIdx first, fall back to searching
+    let stepIdx = CS.pendingStepIdx;
+    if (stepIdx < 0) stepIdx = findStepIdxContaining('START COMBAT');
+    if (stepIdx >= 0) G.checkedSteps.add(stepIdx);
+    // Always recheck and potentially unlock — never leave permanently stuck
+    const total = G.currentSteps.filter(s=>s!==null).length;
+    const _cb2 = document.getElementById('complete-btn');
+    if(_cb2) _cb2.disabled = (G.checkedSteps.size < total);
+    renderSteps();
     csReset();
     render();
 }
@@ -2487,9 +2698,9 @@ function closeCombat(){
 // HUMAN TURN
 // ================================================================
 const HUMAN_STEPS = [
-    { id:'card',   text:'<b>Choose and play one of your two Order Cards</b> face-up.' },
+    { id:'card',   text:'<b>Flip your pre-set Order Card face-up</b> and resolve it. You must play your cards in the order you placed them face-down at the start of this round.' },
     { id:'move',   text:'<b>Move your units</b> according to your card. Remember leave-behind rules: non-urban = 1 unit, city = Tax value in units.' },
-    { id:'board',  text:'<b>Update the board state</b> — open the editor and record any territory ownership or unit count changes from your move.' },
+    { id:'board',  text:'<b>Update the board state</b> — open the editor and record territory changes. If you made no moves this action, tap to skip.' },
     { id:'crowns', text:'<b>Collect Tax / claim Crowns</b> if applicable. Use the coin [+] / [−] buttons in the player bar to adjust your total.' },
 ];
 
@@ -2503,7 +2714,6 @@ function renderHumanTurn() {
     const stepsHTML = HUMAN_STEPS.map((s, i) => {
         const done = checks.has(i);
         if (s.id === 'board') {
-            // Special step: opens board editor
             const btnCls = boardDone ? 'ht-open-board done-board' : 'ht-open-board';
             const btnTxt = boardDone ? '✓ Board State Updated' : '🗺 Open Board Editor to Update State';
             return `<div class="ht-step ${done?'done':''}" onclick="htToggle(${i})">
@@ -2511,6 +2721,8 @@ function renderHumanTurn() {
                 <div class="ht-text">
                     ${s.text}
                     <button class="${btnCls}" onclick="event.stopPropagation();htOpenBoard(${i})">${btnTxt}</button>
+                    ${!done ? `<button style="margin-top:6px;background:none;border:1px solid #ccc;border-radius:5px;padding:5px 12px;font-size:0.8em;color:var(--ink-light);cursor:pointer;width:100%"
+                        onclick="event.stopPropagation();htToggle(${i})">No moves this action — skip ›</button>` : ''}
                 </div>
             </div>`;
         }
@@ -2522,14 +2734,19 @@ function renderHumanTurn() {
 
     const pct = Math.round((checks.size / HUMAN_STEPS.length) * 100);
 
+    const pColor = S.playerColor || 'blue';
+    const pHex   = COLOR_HEX[pColor] || '#5bb8f5';
+    const lightC = ['blue','green','orange'].includes(pColor);
+    // Set CSS custom property so all .ht-* rules pick up the right color
+    document.documentElement.style.setProperty('--player-color', pHex);
     el.innerHTML = `
-        <div class="human-banner" style="margin-bottom:0;border-bottom:none;border-radius:8px 8px 0 0;">
-            <h2>⚔ YOUR TURN — ACTION ${G.step} of 2</h2>
+        <div class="human-banner" style="margin-bottom:0;border-bottom:none;border-radius:8px 8px 0 0;border-color:${pHex};">
+            <h2 style="color:${pHex};">⚔ YOUR TURN — ACTION ${G.step} of 2</h2>
             <p>Tap each step as you do it. Update the board state so automatons plan correctly.</p>
         </div>
         <div class="steps-panel" style="margin-bottom:12px;border-radius:0 0 8px 8px;">
-            <div class="steps-header" style="background:var(--p-blue)">YOUR ACTION CHECKLIST</div>
-            <div class="ht-progress"><div class="ht-progress-fill" style="width:${pct}%"></div></div>
+            <div class="steps-header" style="background:${pHex};color:${lightC?'#000':'#fff'}">YOUR ACTION CHECKLIST</div>
+            <div class="ht-progress"><div class="ht-progress-fill" style="width:${pct}%;background:${pHex}"></div></div>
             <div class="human-turn-steps">${stepsHTML}</div>
         </div>`;
 
@@ -2563,6 +2780,365 @@ closeBoardEditor = function() {
         renderHumanTurn();
     }
 };
+
+
+// Show "Stuck? Force advance" hint after Complete Turn is disabled for 8 seconds
+let _stuckTimer = null;
+function resetStuckTimer() {
+    clearTimeout(_stuckTimer);
+    const hint = () => document.getElementById('stuck-hint');
+    if (hint()) hint().style.display = 'none';
+    const btn = document.getElementById('complete-btn');
+    if (btn && btn.disabled) {
+        _stuckTimer = setTimeout(() => {
+            const b = document.getElementById('complete-btn');
+            const h = document.getElementById('stuck-hint');
+            if (b && b.disabled && h) h.style.display = 'block';
+        }, 8000);
+    }
+}
+function forceAdvance() {
+    if (!confirm('Force advance to next turn?\n\nThis skips any remaining steps. Use only if you are stuck.')) return;
+    const h = document.getElementById('stuck-hint');
+    if (h) h.style.display = 'none';
+    advanceTurn();
+}
+
+
+// ================================================================
+// TERRITORY EDIT MODAL
+// ================================================================
+let TE = { name:null }; // working copy lives directly on G.board during edit
+
+function openTerrEdit(name) {
+    if (!G.board[name]) return;
+    TE.name = name;
+    document.getElementById('terr-edit-overlay').classList.add('open');
+    renderTerrEdit();
+}
+
+function closeTerrEdit() {
+    document.getElementById('terr-edit-overlay').classList.remove('open');
+    TE.name = null;
+    // Refresh the full board view to show changes
+    const bs = G.board;
+    renderBEFull(bs);
+}
+
+function renderTerrEdit() {
+    const name = TE.name;
+    const b = G.board[name];
+    if (!b) return;
+
+    const tax = T[name]?.tax > 0 ? `Tax ${T[name].tax} city` : 'Non-urban territory';
+    document.getElementById('terr-edit-title').textContent = name;
+
+    const allColors = ['orange','green','purple','blue','neutral'];
+    const ownerBtns = allColors.map(c => {
+        const bg = COLOR_HEX[c] || '#aaa';
+        const txt = ['orange','green','blue'].includes(c) ? '#000' : '#fff';
+        const sel = b.owner === c ? 'sel' : '';
+        return `<button class="te-owner-btn ${sel}"
+            style="background:${bg};color:${txt}"
+            onclick="teSetOwner('${c}')">${c === 'neutral' ? 'Neutral' : c.charAt(0).toUpperCase()+c.slice(1)}${c===S.playerColor?' (You)':''}</button>`;
+    }).join('');
+
+    const unitDefs = [
+        { k:'F', label:'Footman',     sub:'1 die in combat' },
+        { k:'A', label:'Archer',      sub:'1 die pre-battle' },
+        { k:'C', label:'Cavalry',     sub:'2 dice in combat' },
+        { k:'S', label:'Siege Engine',sub:'Required for castles' },
+    ];
+    const unitRows = unitDefs.map(({k, label, sub}) => {
+        const v = b.units[k] || 0;
+        return `<div class="te-unit-row">
+            <div>
+                <div class="te-unit-label">${label}</div>
+                <div class="te-unit-sub">${sub}</div>
+            </div>
+            <div class="te-stepper">
+                <button class="te-btn" onclick="teAdjUnit('${k}',-1)">−</button>
+                <span class="te-val" id="te-${k}">${v}</span>
+                <button class="te-btn" onclick="teAdjUnit('${k}',1)">+</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    const total = unitTotal(b.units);
+    const castleCls = b.castle ? 'te-castle-toggle on' : 'te-castle-toggle';
+    const castleLbl = b.castle ? '🏰 Remove Castle' : '+ Add Castle';
+    const castleNote = T[name]?.tax > 0 ? '' : '<div style="font-size:0.75em;color:var(--ink-light);margin-top:4px;">Note: only cities can normally have castles.</div>';
+
+    document.getElementById('terr-edit-body').innerHTML = `
+        <div class="te-section">
+            <div class="te-label">Territory</div>
+            <div style="font-family:Cinzel,serif;font-size:1em;font-weight:700;color:var(--ink);">${name}</div>
+            <div style="font-size:0.8em;color:var(--ink-light);">${tax}</div>
+        </div>
+        <div class="te-section">
+            <div class="te-label">Owner</div>
+            <div class="te-owner-row">${ownerBtns}</div>
+        </div>
+        <div class="te-section">
+            <div class="te-label">Units &nbsp;<span class="te-total-badge" id="te-total">(${total} total)</span></div>
+            <div class="te-units-grid">${unitRows}</div>
+        </div>
+        <div class="te-section">
+            <div class="te-label">Castle</div>
+            <div class="te-castle-row">
+                <div class="te-castle-label">${b.castle ? '🏰 Castle present' : 'No castle'}</div>
+                <button class="${castleCls}" id="te-castle-btn" onclick="teToggleCastle()">${castleLbl}</button>
+            </div>
+            ${castleNote}
+        </div>
+        <button class="te-save-btn" onclick="closeTerrEdit()">✓ Done — Save Changes</button>
+    `;
+}
+
+function teSetOwner(color) {
+    if (!G.board[TE.name]) return;
+    G.board[TE.name].owner = color;
+    renderTerrEdit();
+}
+
+function teAdjUnit(k, v) {
+    if (!G.board[TE.name]) return;
+    G.board[TE.name].units[k] = Math.max(0, (G.board[TE.name].units[k]||0) + v);
+    // Update just the value and total without full re-render (snappy feel)
+    const el = document.getElementById('te-'+k);
+    if (el) el.textContent = G.board[TE.name].units[k];
+    const tot = document.getElementById('te-total');
+    if (tot) tot.textContent = '('+unitTotal(G.board[TE.name].units)+' total)';
+}
+
+function teToggleCastle() {
+    if (!G.board[TE.name]) return;
+    G.board[TE.name].castle = !G.board[TE.name].castle;
+    const btn = document.getElementById('te-castle-btn');
+    const b = G.board[TE.name];
+    if (btn) {
+        btn.className = b.castle ? 'te-castle-toggle on' : 'te-castle-toggle';
+        btn.textContent = b.castle ? '🏰 Remove Castle' : '+ Add Castle';
+    }
+    // Update the label text too
+    renderTerrEdit();
+}
+
+
+// ================================================================
+// COMBAT PHASE — runs after all players finish Action 2
+// ================================================================
+let CP = { idx:0, humanBattle:null, humanPhase:null, humanRounds:[] };
+
+function openCombatPhase() {
+    CP = { idx:0, humanBattle:null, humanPhase:null, humanRounds:[] };
+    document.getElementById('cp-round').textContent = G.round;
+    document.getElementById('cp-overlay').classList.add('open');
+    renderCombatPhase();
+}
+
+function closeCombatPhase() {
+    document.getElementById('cp-overlay').classList.remove('open');
+    G.roundCombats = [];
+    prepareRound(false);
+    render();
+}
+
+function renderCombatPhase() {
+    const battles = G.roundCombats || [];
+    const body = document.getElementById('cp-body');
+
+    // Build battle cards (all of them, resolved ones dimmed)
+    const cards = battles.map((b, i) => {
+        const resolved = b._resolved;
+        const isActive = i === CP.idx && !resolved;
+        const attColor = b.color || 'neutral';
+        const defColor = G.board[b.to]?.owner || 'neutral';
+        const attUnits = totalUnitCount(G.board[b.from]?.units || {});
+        const defUnits = totalUnitCount(G.board[b.to]?.units || {});
+        const humanInvolved = b.color === S.playerColor || defColor === S.playerColor;
+        const badge = resolved
+            ? `<span class="cp-battle-badge done">✓ ${b._result || 'Resolved'}</span>`
+            : humanInvolved
+                ? `<span class="cp-battle-badge pending">YOUR BATTLE</span>`
+                : `<span class="cp-battle-badge auto">Auto-resolve</span>`;
+
+        let detail = '';
+        if (resolved) {
+            detail = `<div class="cp-auto-log">${b._log || ''}</div>`;
+        } else if (isActive) {
+            detail = humanInvolved
+                ? renderCPHumanBattle(b, i)
+                : renderCPAutoBattle(b, i);
+        }
+
+        return `<div class="cp-battle ${resolved?'resolved':''} ${isActive?'active':''}" id="cp-battle-${i}">
+            <div class="cp-battle-hdr">
+                <div>
+                    <div class="cp-battle-title">${b.from} → ${b.to}</div>
+                    <div class="cp-battle-sub">${cName(b.color)} attacks ${cName(defColor)}</div>
+                </div>
+                ${badge}
+            </div>
+            ${detail}
+        </div>`;
+    }).join('');
+
+    // End button — only enabled when all resolved
+    const allDone = battles.every(b => b._resolved);
+    body.innerHTML = cards +
+        `<button class="cp-end-btn" onclick="closeCombatPhase()" ${allDone?'':'disabled'}>
+            ${allDone ? '✓ End Combat Phase — Begin Next Round' : `Resolve battle ${CP.idx+1} of ${battles.length} to continue`}
+        </button>`;
+}
+
+// ── Auto-resolve a battle and render the log ─────────────────────
+function renderCPAutoBattle(b, idx) {
+    // Run full auto-combat immediately and store result
+    const result = resolveAutoBattle(b);
+    G.roundCombats[idx]._resolved = true;
+    G.roundCombats[idx]._result = result.winner === b.color ? 'Attacker won' : result.winner === 'defender' ? 'Defender held' : 'Draw';
+    G.roundCombats[idx]._log = result.log;
+    applyBattleResult(b, result);
+
+    // Move to next battle
+    CP.idx = idx + 1;
+    // Re-render after short delay so player sees the resolution
+    setTimeout(renderCombatPhase, 400);
+    return `<div class="cp-auto-log">⚙ Resolving…</div>`;
+}
+
+// ── Human battle UI ───────────────────────────────────────────────
+function renderCPHumanBattle(b, idx) {
+    const defColor = G.board[b.to]?.owner || 'neutral';
+    const attUnits = G.board[b.from]?.units || {};
+    const defUnits = G.board[b.to]?.units || {};
+    const attHex = COLOR_HEX[b.color] || '#888';
+    const defHex = COLOR_HEX[defColor] || '#888';
+    const attLight = ['orange','green','blue'].includes(b.color);
+    const defLight = ['orange','green','blue'].includes(defColor);
+
+    // Use the existing full combat modal for human battles
+    return `<div class="cp-human-panel">
+        <div class="cp-sides">
+            <div class="cp-side" style="background:${attHex};color:${attLight?'#000':'#fff'}">
+                <div class="cps-label">ATTACKER</div>
+                <div class="cps-name">${b.from}</div>
+                <div class="cps-units">${unitStr(attUnits)}</div>
+            </div>
+            <div class="cp-vs">VS</div>
+            <div class="cp-side" style="background:${defHex};color:${defLight?'#000':'#fff'}">
+                <div class="cps-label">DEFENDER</div>
+                <div class="cps-name">${b.to}</div>
+                <div class="cps-units">${unitStr(defUnits)}</div>
+            </div>
+        </div>
+        <button class="cp-next-btn" onclick="launchCPHumanCombat(${idx})">⚔ Start Combat — Roll Dice</button>
+    </div>`;
+}
+
+function launchCPHumanCombat(idx) {
+    const b = G.roundCombats[idx];
+    const defColor = G.board[b.to]?.owner || 'neutral';
+    CP.activeBattleIdx = idx;
+    openCombat(b.color, defColor, b.from, b.to, -1);
+    // Override closeCombat to return to CP phase
+    CP.returnToCombatPhase = true;
+}
+
+// ── Resolve automaton battle with dice ────────────────────────────
+function resolveAutoBattle(b) {
+    const att = G.board[b.from]?.units || {};
+    const def = G.board[b.to]?.units || {};
+    const log = [];
+
+    let aUnits = { ...att };
+    let dUnits = { ...def };
+
+    function rollHits(dice, threshold=4) {
+        let hits = 0;
+        for(let i=0;i<dice;i++) if(Math.ceil(Math.random()*6)>=threshold) hits++;
+        return hits;
+    }
+    function total(u) { return (u.F||0)+(u.A||0)+(u.C||0)+(u.S||0); }
+    function removeCasualties(u, n) {
+        let rem = n;
+        // Remove weakest first: F → A → C → S
+        for (const k of ['F','A','C','S']) {
+            const take = Math.min(u[k]||0, rem);
+            u[k] = (u[k]||0) - take; rem -= take;
+            if (rem <= 0) break;
+        }
+    }
+
+    // Siege pre-battle
+    const aSiege = aUnits.S||0, dSiege = dUnits.S||0;
+    if (aSiege > 0) {
+        const hits = rollHits(aSiege*2, 4);
+        removeCasualties(dUnits, hits);
+        log.push(`Siege fire: ${aSiege} siege engine(s) → ${hits} hits on defender.`);
+    }
+    if (dSiege > 0) {
+        const hits = rollHits(dSiege*2, 4);
+        removeCasualties(aUnits, hits);
+        log.push(`Def. Siege: ${dSiege} siege engine(s) → ${hits} hits on attacker.`);
+    }
+    // Archer volley
+    const aArch = aUnits.A||0, dArch = dUnits.A||0;
+    if (aArch+dArch > 0) {
+        const aHits = rollHits(aArch, 4), dHits = rollHits(dArch, 4);
+        removeCasualties(dUnits, aHits);
+        removeCasualties(aUnits, dHits);
+        log.push(`Archers: att ${aArch} archers → ${aHits} hits; def ${dArch} archers → ${dHits} hits.`);
+    }
+
+    // Main combat rounds
+    let rounds = 0;
+    while (total(aUnits) > 0 && total(dUnits) > 0 && rounds < 10) {
+        rounds++;
+        const aDice = (aUnits.C||0)*2 + (aUnits.F||0) + (aUnits.A||0);
+        const dDice = (dUnits.C||0)*2 + (dUnits.F||0) + (dUnits.A||0);
+        const aHits = rollHits(aDice), dHits = rollHits(dDice);
+        removeCasualties(dUnits, aHits);
+        removeCasualties(aUnits, dHits);
+        log.push(`Round ${rounds}: att ${aDice}d→${aHits} hits; def ${dDice}d→${dHits} hits.`);
+    }
+
+    const attSurv = total(aUnits), defSurv = total(dUnits);
+    const winner = attSurv > 0 && defSurv === 0 ? b.color : attSurv === 0 ? 'defender' : 'draw';
+    log.push(winner === b.color ? `✓ Attacker captures ${b.to}! (${attSurv} survivors)` :
+             winner === 'defender' ? `✗ Defender holds ${b.to}! (${defSurv} survivors)` :
+             `⚡ Both sides eliminated.`);
+    return { winner, attSurv, defSurv, attUnits: aUnits, defUnits: dUnits, log: log.join('<br>') };
+}
+
+function applyBattleResult(b, result) {
+    const defColor = G.board[b.to]?.owner || 'neutral';
+    if (result.winner === b.color) {
+        // Attacker wins — move survivors to captured territory
+        G.board[b.from].units = Object.fromEntries(
+            Object.entries(G.board[b.from].units).map(([k,v])=>[k, Math.max(0, v-(b.movingUnits?.[k]||0))])
+        );
+        G.board[b.to].owner = b.color;
+        G.board[b.to].units = result.attUnits;
+        addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}.`);
+    } else if (result.winner === 'defender') {
+        // Defender holds — attacking units destroyed
+        ['F','A','C','S'].forEach(k => {
+            G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
+        });
+        addLog(`${cName(defColor)} holds ${b.to} against ${cName(b.color)}.`);
+    } else {
+        // Both wiped — territory goes neutral
+        G.board[b.to].units = {F:0,A:0,C:0,S:0};
+        G.board[b.to].owner = 'neutral';
+        ['F','A','C','S'].forEach(k => {
+            G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
+        });
+        addLog(`${b.to}: both sides eliminated — territory neutral.`);
+    }
+}
+
 
 // ================================================================
 // INIT
@@ -2607,6 +3183,28 @@ showStep(0);
       <span class="combat-phase-badge" id="combat-phase-label">—</span>
     </div>
     <div class="combat-body" id="combat-body"></div>
+  </div>
+</div>
+
+
+<!-- Territory Edit Modal -->
+<div class="terr-edit-overlay" id="terr-edit-overlay">
+  <div class="terr-edit-modal">
+    <div class="terr-edit-hdr">
+      <span id="terr-edit-title">Edit Territory</span>
+      <button class="terr-edit-close" onclick="closeTerrEdit()">✕</button>
+    </div>
+    <div class="terr-edit-body" id="terr-edit-body"></div>
+  </div>
+</div>
+
+
+<!-- COMBAT PHASE OVERLAY -->
+<div class="cp-overlay" id="cp-overlay">
+  <div class="cp-modal">
+    <div class="cp-header">⚔ COMBAT PHASE — ROUND <span id="cp-round">1</span></div>
+    <div class="cp-subhdr">All battles from this round are resolved now, in order.</div>
+    <div class="cp-body" id="cp-body"></div>
   </div>
 </div>
 
