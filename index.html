@@ -449,6 +449,17 @@
         .ht-step.done .ht-cb { background: var(--p-green); border-color: var(--p-green); color: white; }
         .ht-step .ht-text { font-size: 0.88em; line-height: 1.62; color: var(--ink); flex: 1; }
         .ht-step .ht-text b { color: var(--player-color); }
+        /* Human card picker */
+        .hcp-wrap { padding:14px; }
+        .hcp-label { font-family:'Cinzel',serif; font-size:0.8em; font-weight:700; color:var(--ink-light); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px; }
+        .hcp-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+        .hcp-card { border:2px solid var(--border-light); border-radius:8px; padding:10px 10px 8px; cursor:pointer; background:#fffdf7; transition:all 0.15s; font-family:'Cinzel',serif; font-size:0.75em; font-weight:700; color:var(--ink); text-align:center; line-height:1.3; }
+        .hcp-card:hover { border-color:var(--accent); background:#fff7f0; }
+        .hcp-card.selected { border-color:var(--accent); background:rgba(139,26,26,0.08); color:var(--accent); }
+        .hcp-card .hcp-count { font-size:0.78em; font-weight:400; color:var(--ink-light); margin-top:3px; font-family:inherit; }
+        .hcp-confirm { width:100%; padding:12px; background:var(--accent); color:#fff; border:none; border-radius:8px; font-family:'Cinzel',serif; font-size:0.88em; font-weight:700; cursor:pointer; }
+        .hcp-confirm:disabled { background:#bbb; cursor:not-allowed; }
+        .hcp-discard { font-size:0.72em; color:var(--ink-light); text-align:center; margin-top:8px; }
         .ht-open-board {
             display: flex; align-items: center; gap: 8px; padding: 10px 14px;
             background: rgba(0,0,0,0.04); border: 2px solid var(--player-color);
@@ -508,6 +519,15 @@
         .cp-battle-badge.done { background:rgba(30,126,68,0.12); color:#1e7e44; }
         .cp-battle-badge.auto { background:rgba(0,0,0,0.07); color:var(--ink-light); }
         .cp-auto-log { padding:10px 14px; font-size:0.8em; color:var(--ink-light); line-height:1.7; }
+        .dice-row { display:flex; flex-wrap:wrap; gap:3px; margin:3px 0 5px 0; align-items:center; }
+        .die { font-size:1.45em; line-height:1; }
+        .die.hit  { color:#1a7a3c; }
+        .die.miss { color:#bbb; }
+        .board-instruction { background:#f0f7f0; border:1.5px solid #1a7a3c; border-radius:6px;
+            padding:8px 12px; margin:6px 0; font-size:0.82em; color:#1a4a2a; line-height:1.6; }
+        .board-instruction b { color:#145c25; }
+        .board-instruction.neutral { background:#f5f0ea; border-color:#8b6914; color:#5a3e10; }
+        .board-instruction.neutral b { color:#6b4c10; }
         .cp-human-panel { padding:12px 14px; }
         .cp-sides { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
         .cp-side { flex:1; border-radius:7px; padding:10px 12px; color:white; text-align:center; }
@@ -680,13 +700,12 @@ const CAPITALS = [
 ];
 
 const DECK_BASE = [
-    "TAX OR SPEND","TAX OR SPEND","TAX OR SPEND",
-    "EXPAND OR MANEUVER","EXPAND OR MANEUVER",
+    "TAX OR SPEND","TAX OR SPEND",
     "SPLIT EXPAND OR MANEUVER","SPLIT EXPAND OR MANEUVER",
-    "FORTIFY / EXPAND OR MANEUVER",
+    "KING ME / TAX OR SPEND",
     "SIEGE ASSAULT / EXPAND OR MANEUVER",
-    "KING ME"
-];
+    "FORTIFY / EXPAND OR MANEUVER","FORTIFY / EXPAND OR MANEUVER"
+]; // 8 cards: 2×Tax, 2×SplitExpand, KingMe/Tax, SiegeAssault, 2×Fortify
 
 const SPEND_TABLE = {
     5:"2 Footmen + 1 Cavalry", 6:"1 Footman + 1 Archer + 1 Cavalry",
@@ -857,9 +876,9 @@ function leaveBehindCount(name) {
     return T[name]?.tax > 0 ? T[name].tax : 1;
 }
 
-function leaveBehindPlayer(name) {
-    // Same leave-behind rule applies to all players: Tax value for cities, 1 for non-urban
-    return T[name]?.tax > 0 ? T[name].tax : 1;
+function leaveBehindPlayer(_name) {
+    // Human rule: always leave at least 1 unit behind
+    return 1;
 }
 
 function movableCount(name, color) {
@@ -1697,11 +1716,15 @@ function launchGame() {
         eliminated:   new Set(),   // colors permanently out of the game
         savedByCrown: new Set(),   // colors on their one-round grace period
         revealed:false, pendingMoves:[], currentSteps:[], checkedSteps:new Set(),
-        humanTurnChecks:new Set(), humanBoardUpdated:false,
+        humanTurnChecks:new Set(), humanBoardUpdated:false, humanSpendCart:{F:0,A:0,C:0,S:0,Castle:0},
+        humanDeck:[], humanDiscard:[], humanCard:null, humanVariant:null, humanFlow:[], _humanCardPending:null, _humanVariantPending:null,
         roundCombats:[],
         logHistory:[]
     };
     autos.forEach(c => { G.decks[c]=[]; G.hand[c]=[]; });
+    G.humanDeck = shuffle([...DECK_BASE]);
+    G.humanDiscard = [];
+    G.humanCard = null;
     initBoard();
     prepareRound(true);
     addLog('Game started — Round 1 begins.');
@@ -2179,7 +2202,6 @@ function generateSteps(card, color, coins) {
         return steps;
     }
 
-    if (card === "EXPAND OR MANEUVER") { steps.push(...EXPAND); return steps; }
 
     if (card === "SPLIT EXPAND OR MANEUVER") {
         const splitDec = decideSplitExpand(color);
@@ -2310,11 +2332,64 @@ function generateSteps(card, color, coins) {
         return steps;
     }
 
-    if (card === "KING ME") {
-        // Register auto-effect: checking step 0 sets pending first player
-        G._stepCoinEffects[0] = 'kingme:' + color; // special string signal
-        steps.push(`<b>KING ME:</b> ${C} claims the First Player marker. ✓ Check this step to automatically queue the First Player change for next round.`);
-        steps.push(`The change takes effect at the <b>start of next round</b>. The crown icon on ${C}'s tile will pulse yellow to confirm it is pending.`);
+    if (card === "KING ME / TAX OR SPEND") {
+        // BONUS: KING ME — claims first player marker
+        G._stepCoinEffects[0] = 'kingme:' + color;
+        steps.push(`<b>KING ME (BONUS):</b> ${C} claims the First Player marker. ✓ Check this step to queue the change for next round.`);
+        steps.push(`The change takes effect at the <b>start of next round</b>. The crown icon on ${C}'s tile will pulse yellow.`);
+        steps.push(null); // ── section divider ──
+        // MAIN: TAX OR SPEND — steps start at index 3 (0=kingme, 1=note, 2=null-divider)
+        // _stepCoinEffects must use offset indices: spend at [3], tax-city at [4]
+        const _hasCities  = ownedBy(color).filter(n => T[n].tax > 0).length > 0;
+        const _hasCastle  = ownedBy(color).some(n => G.board[n].castle);
+        const _savedGrace = G.savedByCrown?.has(color) && !_hasCities;
+        if (_savedGrace && !_hasCastle) {
+            steps.push(`<b>TAX OR SPEND (MAIN): NO ACTION — SAVED BY THE CROWN:</b> ${C} has no cities and no castle. Skip.`);
+            return steps;
+        }
+        steps.push(`<b>TAX OR SPEND (MAIN):</b>`);
+        if (coins <= 4) {
+            const taxDec = decideTax(color);
+            const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
+            const taxAmt  = taxDec ? taxDec.yield : '?';
+            G.pendingMove = { type:'tax', color, city: taxCity, amount: taxAmt };
+            G.pendingMoves.push(G.pendingMove);
+            G._stepCoinEffects[4] = taxAmt; // step index 4 (after 0=kingme,1=note,2=divider,3=header)
+            steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check to automatically add ${taxAmt} coins.
+                <span class="rule-note">Yield = Tax value + 1 per connected non-urban territory + Tax of connected owned cities.</span>`);
+            if (CITY_SHIELDS[taxCity]?.trigger === 'tax' && G.shields?.[taxCity] === color) {
+                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[taxCity].reminder}</div>`);
+            }
+        } else {
+            const { cost, items } = getBestSpend(coins, color);
+            const hasCastle = items.includes("Castle"), hasSiege = items.includes("Siege Engine");
+            const purchase = { cost, items,
+                F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
+                A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
+                C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
+                S:hasSiege?1:0, castle:hasCastle };
+            const placements = decideSpendPlacements(color, purchase);
+            G.pendingMove = { type:'spend', color, purchase, placements };
+            G.pendingMoves.push(G.pendingMove);
+            G._stepCoinEffects[3] = -cost; // step index 3 = header+spend combined
+            steps.push(`<b>SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase: <span class="buy-highlight">${items}</span> Cost: <b>${cost} coins.</b> ✓ Check to deduct.
+                <span class="rule-note">If a figure type runs out: substitute 2 Footmen ↔ 1 Archer.</span>`);
+            placements.forEach(p => {
+                const curr = totalUnitCount(p.territory);
+                if (p.type === 'castle') {
+                    steps.push(`<b>Place Castle</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
+                } else if (p.type === 'siege') {
+                    steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest to an enemy castle.`);
+                    if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color)
+                        steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`);
+                } else {
+                    const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
+                    steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
+                }
+            });
+            if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color)
+                steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`);
+        }
         return steps;
     }
 
@@ -2379,10 +2454,24 @@ function advanceTurn() {
     G.pendingFortify = null;
     G.humanTurnChecks = new Set();
     G.humanBoardUpdated = false;
+    G.humanVariant = null;
+    G._humanVariantPending = null;
+    G.humanFlow = [];
+    G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+    // Discard the human's played card
+    if (G.humanCard) {
+        G.humanDiscard.push(G.humanCard);
+        G.humanCard = null;
+        if (G.humanDeck.length === 0) {
+            G.humanDeck = shuffle([...G.humanDiscard]);
+            G.humanDiscard = [];
+            addLog('Your deck reshuffled.');
+        }
+    }
     BE.movedFrom = new Set(); // clear crossed-off territories for new turn
     G.revealed = false; G.currentSteps = []; G.checkedSteps = new Set();
     G.slot++;
-    if (G.slot >= 4) {
+    if (G.slot >= getTurnOrder().length) {
         G.slot = 0;
         if (G.step === 1) {
             G.step = 2;
@@ -2439,7 +2528,7 @@ function render() {
         const textColor = lightColors.includes(c) ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
         const subTextColor = lightColors.includes(c) ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
         tile.style.color = textColor;
-        const used  = isHuman ? '—' : `${10-G.decks[c].length}/10`;
+        const used  = isHuman ? `${G.humanDiscard.length}/8` : `${8-G.decks[c].length}/8`;
         const mode  = (!isHuman && G.coins[c]<=4)
             ? '<span class="coin-threshold mode-tax">TAX</span>'
             : '<span class="coin-threshold mode-spend">SPEND</span>';
@@ -2986,7 +3075,9 @@ function tileStyle(color){
 
 // ── OPEN COMBAT ──────────────────────────────────────────────────
 function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
-    if(!G.board[fromTerr]||!G.board[toTerr]){
+    // Allow __editor__ as a valid "from" — it means the attacker has no origin territory
+    const isEditorBattle = (fromTerr === '__editor__');
+    if((!isEditorBattle && !G.board[fromTerr]) || !G.board[toTerr]){
         console.warn('openCombat: territory not found in board state', fromTerr, toTerr);
         if(stepIdx >= 0) G.checkedSteps.add(stepIdx);
         const total = G.currentSteps.filter(s=>s!==null).length;
@@ -2999,18 +3090,21 @@ function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
     CS.attackerColor=attackerColor; CS.defenderColor=defenderColor;
     CS.fromTerr=fromTerr; CS.toTerr=toTerr;
     // '__editor__' battles: attacker units come from the roundCombats entry, not a territory
-    if (fromTerr === '__editor__') {
+    if (isEditorBattle) {
         const entry = (G.roundCombats||[]).find(b => b._fromEditor && b.to===toTerr && b.color===attackerColor && !b._resolved);
         CS.attUnits = entry?.movingUnits ? {...entry.movingUnits} : {F:1,A:0,C:0,S:0};
         CS._fromEditor = true;
+        // Friendly label shown wherever fromTerr would be displayed
+        CS._attLabel = cName(attackerColor) + ' (manually placed)';
     } else {
         CS.attUnits={...G.board[fromTerr].units};
+        CS._attLabel = fromTerr;
     }
     CS.defUnits={...G.board[toTerr].units};
     CS.humanAtt=(attackerColor===S.playerColor);
     CS.humanDef=(defenderColor===S.playerColor);
     CS.pendingStepIdx=stepIdx;
-    document.getElementById('combat-title').textContent='COMBAT: '+fromTerr+' → '+toTerr;
+    document.getElementById('combat-title').textContent='COMBAT: '+CS._attLabel+' → '+toTerr;
 
     // Determine starting phase
     const hasCastle=G.board[toTerr].castle;
@@ -3124,7 +3218,7 @@ function renderCombatUI(){
         '<div class="combat-sides-row">'+
             '<div class="combat-side" style="'+tileStyle(CS.attackerColor)+'">'+
                 '<div class="sl">ATTACKER</div>'+
-                '<div class="sn">'+sideColor(CS.attackerColor)+'<br><span style="font-weight:400;font-size:0.85em;">'+CS.fromTerr+'</span></div>'+
+                '<div class="sn">'+sideColor(CS.attackerColor)+'<br><span style="font-weight:400;font-size:0.85em;">'+(CS._attLabel||CS.fromTerr)+'</span></div>'+
                 '<div class="su">'+csStr(CS.attUnits)+' ('+attTotal+' total)</div>'+
             '</div>'+
             '<div class="combat-vs">⚔</div>'+
@@ -3269,9 +3363,10 @@ function showCasualtyReport(msg){
 }
 
 function csRetreat(){
-    if(!confirm('Retreat '+CS.attackerColor.toUpperCase()+' back to '+CS.fromTerr+'?')) return;
+    const retLabel = CS._fromEditor ? 'off the board' : 'back to '+CS.fromTerr;
+    if(!confirm('Retreat '+CS.attackerColor.toUpperCase()+' '+retLabel+'?')) return;
     CS.retreated=true;
-    CS.log.push('↩ Attacker retreats to '+CS.fromTerr);
+    CS.log.push('↩ Attacker retreats '+(CS._fromEditor ? '(removed from board)' : 'to '+CS.fromTerr));
     CS.phase='result';
     renderCombatUI();
 }
@@ -3284,6 +3379,7 @@ function renderResult(){
     let msg='', cls='';
     if(CS.retreated){
         msg='↩ '+CS.attackerColor.toUpperCase()+' retreats. '+CS.defenderColor.toUpperCase()+' holds '+CS.toTerr+'.';
+        if(CS._fromEditor) msg='↩ '+CS.attackerColor.toUpperCase()+' retreats (units removed). '+CS.defenderColor.toUpperCase()+' holds '+CS.toTerr+'.';
         cls='draw';
     } else if(won){
         msg='✓ '+CS.attackerColor.toUpperCase()+' captures '+CS.toTerr+'! ('+csStr(CS.attUnits)+' remain)';
@@ -3306,7 +3402,8 @@ function renderResult(){
 
 function csFinalize(attackerWon, finalAtt, finalDef){
     const from=CS.fromTerr, to=CS.toTerr;
-    if(!G.board[from]||!G.board[to]) return;
+    const isEditor = (from === '__editor__');
+    if((!isEditor && !G.board[from]) || !G.board[to]) return;
 
     // Normal path
     if (from !== '__editor__') {
@@ -3387,89 +3484,1013 @@ function closeCombat(){
 // ================================================================
 // HUMAN TURN
 // ================================================================
-const HUMAN_STEPS = [
-    { id:'card',   text:'<b>Flip your pre-set Order Card face-up</b> and resolve it. You must play your cards in the order you placed them face-down at the start of this round.' },
-    { id:'move',   text:'<b>Move your units</b> according to your card. Leave-behind: <b>non-urban = 1 unit, city = its Tax value in units</b>. <b>MANEUVER</b>: up to 2 territories away through your own territories to an owned or disputed territory. Cannot maneuver out of a disputed territory.' },
-    { id:'board',  text:'<b>Update the board state</b> — open the editor and record territory changes. If you made no moves this action, tap to skip.' },
-    { id:'crowns', text:'<b>Collect Tax / claim Crowns</b> if applicable. Use the coin [+] / [−] buttons in the player bar to adjust your total.' },
-];
 
+// ── Shield helper ──────────────────────────────────────────────
+function humanShieldBox(city) {
+    const sh = CITY_SHIELDS[city];
+    if (!sh || !G.shields || G.shields[city] !== S.playerColor) return '';
+    return '<div class="shield-reminder">' + sh.reminder + '</div>';
+}
+
+// ── Which cards require a variant choice? ──────────────────────
+// Returns array of {value, label} objects, or [] if no choice needed.
+// Structure of the 8 cards:
+//   No-bonus cards (4):  TAX OR SPEND (×2), SPLIT EXPAND OR MANEUVER (×2)
+//   Bonus cards (4):     KING ME / TAX OR SPEND,
+//                        SIEGE ASSAULT / EXPAND OR MANEUVER,
+//                        FORTIFY / EXPAND OR MANEUVER (×2)
+//
+// For bonus cards the bonus action is OPTIONAL — the player picks their combination.
+function humanCardVariants(card) {
+    const hasBerlin = !!(G.shields && G.shields['Berlin'] === S.playerColor);
+    const bExpand   = hasBerlin ? 'EXPAND (+ Berlin bonus Maneuver)' : 'EXPAND';
+
+    // ── No-bonus cards ────────────────────────────────────────
+    if (card === 'TAX OR SPEND') return [
+        { value:'TAX',   label:'TAX — collect from a city' },
+        { value:'SPEND', label:'SPEND — buy units' },
+    ];
+
+    if (card === 'SPLIT EXPAND OR MANEUVER') return [
+        { value:'SPLIT_EXPAND', label: hasBerlin
+            ? 'SPLIT EXPAND (+ Berlin bonus Maneuver)'
+            : 'SPLIT EXPAND — up to 2 territories into a city' },
+        { value:'MANEUVER', label:'MANEUVER — move up to 2 territories' },
+    ];
+
+    // ── Bonus cards — bonus is OPTIONAL ──────────────────────
+    if (card === 'KING ME / TAX OR SPEND') return [
+        { value:'KINGME_TAX',   label:'KING ME (bonus) + TAX — claim First Player, then tax a city' },
+        { value:'KINGME_SPEND', label:'KING ME (bonus) + SPEND — claim First Player, then buy units' },
+        { value:'TAX',          label:'Skip King Me — TAX only' },
+        { value:'SPEND',        label:'Skip King Me — SPEND only' },
+    ];
+
+    if (card === 'FORTIFY / EXPAND OR MANEUVER') return [
+        { value:'FORTIFY_EXPAND',   label:'FORTIFY (bonus) + ' + bExpand },
+        { value:'FORTIFY_MANEUVER', label:'FORTIFY (bonus) + MANEUVER' },
+        { value:'EXPAND',           label:'Skip Fortify — ' + bExpand + ' only' },
+        { value:'MANEUVER',         label:'Skip Fortify — MANEUVER only' },
+    ];
+
+    if (card === 'SIEGE ASSAULT / EXPAND OR MANEUVER') return [
+        { value:'SIEGE_EXPAND',   label:'SIEGE ASSAULT (bonus) + ' + bExpand },
+        { value:'SIEGE_MANEUVER', label:'SIEGE ASSAULT (bonus) + MANEUVER' },
+        { value:'EXPAND',         label:'Skip Siege — ' + bExpand + ' only' },
+        { value:'MANEUVER',       label:'Skip Siege — MANEUVER only' },
+    ];
+
+    return []; // shouldn't happen with 8 correct cards
+}
+
+// ── Build checklist steps for card + chosen variant ────────────
+// variant string encodes the full combination, e.g. 'KINGME_TAX', 'FORTIFY_EXPAND', 'MANEUVER'
+function generateHumanSteps(card, variant) {
+    const pc    = S.playerColor;
+    const coins = G.coins[pc] || 0;
+    const steps = [];
+
+    const taxShields   = humanShieldBox('Paris') + humanShieldBox('Madrid') + humanShieldBox('London');
+    const spendShields = humanShieldBox('Constantinople') + humanShieldBox('Kiev');
+    const berlinShield = humanShieldBox('Berlin');
+    const stockholmNote = (G.shields && G.shields['Stockholm'] === pc)
+        ? '<div class="shield-reminder">' + CITY_SHIELDS['Stockholm'].reminder + '</div>' : '';
+
+    const leaveRule   = '<span class="rule-note">Leave-behind: <b>Tax value</b> in units at cities, <b>1 unit</b> at non-urban territories.</span>';
+    const manRule     = '<span class="rule-note">Maneuver: up to 2 territories through your <b>own</b> territories. Cannot leave a disputed territory.</span>';
+    const berlinBonus = berlinShield
+        ? berlinShield + '<b>BERLIN BONUS — MANEUVER:</b> You may also Maneuver one army up to 2 territories.<br>' + manRule
+        : null;
+
+    // ── Helpers ───────────────────────────────────────────────
+    function pushTax() {
+        steps.push({ id:'check', text:
+            '<b>TAX:</b> Choose one of your cities and collect its yield.<br>'
+            + 'Yield = city Tax value + 1 per connected non-urban territory + Tax of connected owned cities.<br>'
+            + taxShields
+            + '<span class="rule-note">Add coins with the [+] button in your tile.</span>' });
+        steps.push({ id:'board', text:'<b>Apply any free units</b> from shield bonuses (Paris, Madrid, London) to the board then update board state.' });
+    }
+    function pushSpend() {
+        steps.push({ id:'check', text:
+            '<b>SPEND:</b> You have <b>' + coins + ' coins</b> — buy from the Spend Table and place units.<br>'
+            + spendShields
+            + '<span class="rule-note">Remove coins with the [−] button.</span>' });
+        steps.push({ id:'board', text:'<b>Update board state</b> — place the units you purchased.' });
+    }
+    function pushExpand(qualifier) {
+        const q = qualifier ? qualifier + ' ' : '';
+        steps.push({ id:'check', text:
+            '<b>EXPAND:</b> Choose your ' + q + 'largest army adjacent to a city you don\'t own. Move all but the leave-behind into that city.<br>' + leaveRule });
+        steps.push({ id:'board', text:'<b>Update board state.</b> If the city is enemy-held, use the Board Editor to queue the battle for the Combat Phase.' });
+        if (berlinBonus) {
+            steps.push({ id:'check', text: berlinBonus });
+            steps.push({ id:'board', text:'<b>Update board state</b> for the Berlin bonus Maneuver.' });
+        }
+    }
+    function pushManeuver() {
+        steps.push({ id:'check', text:
+            '<b>MANEUVER:</b> Move one of your armies up to 2 territories through your own territories.<br>' + leaveRule + manRule });
+        steps.push({ id:'board', text:'<b>Update board state</b> — record your maneuver.' });
+    }
+    function pushCrowns() {
+        steps.push({ id:'check', text:'<b>Check Crown points</b> — did you capture a city? Update your crown total.' + stockholmNote });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // TAX OR SPEND  (plain card — no bonus)
+    // ═══════════════════════════════════════════════════════════
+    if (card === 'TAX OR SPEND') {
+        if (variant === 'TAX')   pushTax();
+        else                     pushSpend();
+        steps.push({ id:'check', text:'<b>Coins updated?</b> Confirm your coin total is correct.' + stockholmNote });
+        return steps;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // SPLIT EXPAND OR MANEUVER  (plain card — no bonus)
+    // ═══════════════════════════════════════════════════════════
+    if (card === 'SPLIT EXPAND OR MANEUVER') {
+        if (variant === 'SPLIT_EXPAND') {
+            steps.push({ id:'check', text:
+                '<b>SPLIT EXPAND:</b> Move an army up to 2 territories into a city — you may pass through one of your own territories en route.<br>' + leaveRule
+                + '<span class="rule-note">Only pass through <b>own</b> territories. 1-step entries are also valid. Need a Siege Engine to enter a castle city.</span>' });
+            steps.push({ id:'board', text:'<b>Update board state.</b> If the destination is enemy-held, use the Board Editor to queue the battle.' });
+            if (berlinBonus) {
+                steps.push({ id:'check', text: berlinBonus });
+                steps.push({ id:'board', text:'<b>Update board state</b> for the Berlin bonus Maneuver.' });
+            }
+        } else {
+            pushManeuver();
+        }
+        pushCrowns();
+        return steps;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // KING ME / TAX OR SPEND  (bonus = KING ME, optional)
+    // ═══════════════════════════════════════════════════════════
+    if (card === 'KING ME / TAX OR SPEND') {
+        const doKingMe = variant === 'KINGME_TAX' || variant === 'KINGME_SPEND';
+        if (doKingMe) {
+            steps.push({ id:'check', text:
+                '<b>KING ME (BONUS):</b> Claim the First Player marker — you go first next round.<br>'
+                + '<span class="rule-note">Tap the 🪙 coin icon on your player tile to mark this. The change takes effect at the start of the next round.</span>' });
+        }
+        if (variant === 'KINGME_TAX' || variant === 'TAX')   pushTax();
+        else                                                   pushSpend();
+        steps.push({ id:'check', text:'<b>Coins updated?</b> Confirm your coin total is correct.' + stockholmNote });
+        return steps;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // FORTIFY / EXPAND OR MANEUVER  (bonus = FORTIFY, optional)
+    // ═══════════════════════════════════════════════════════════
+    if (card === 'FORTIFY / EXPAND OR MANEUVER') {
+        const doFortify = variant === 'FORTIFY_EXPAND' || variant === 'FORTIFY_MANEUVER';
+        if (doFortify) {
+            steps.push({ id:'board', text:
+                '<b>FORTIFY (BONUS):</b> Place <b>+3 Footmen</b> (or <b>+4</b> if the chosen city has a castle) in one of your cities.<br>'
+                + '<span class="rule-note">Priority: fewest units → highest Tax value → Capital beats regular city → roll a die on a tie. Update board state.</span>' });
+        }
+        const doExpand = variant === 'FORTIFY_EXPAND' || variant === 'EXPAND';
+        if (doExpand) pushExpand(doFortify ? 'remaining' : null);
+        else          pushManeuver();
+        pushCrowns();
+        return steps;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // SIEGE ASSAULT / EXPAND OR MANEUVER  (bonus = SIEGE ASSAULT, optional)
+    // ═══════════════════════════════════════════════════════════
+    if (card === 'SIEGE ASSAULT / EXPAND OR MANEUVER') {
+        const doSiege  = variant === 'SIEGE_EXPAND' || variant === 'SIEGE_MANEUVER';
+        const doExpand = variant === 'SIEGE_EXPAND'  || variant === 'EXPAND';
+        if (doSiege) {
+            steps.push({ id:'check', text:
+                '<b>SIEGE ASSAULT (BONUS):</b> Move an army that includes a Siege Engine into an adjacent enemy city with a castle.<br>'
+                + '<span class="rule-note">Siege Engines fire first: each rolls 2 dice (hit on 4+), defender removes casualties before main combat begins.</span>' });
+            steps.push({ id:'board', text:'<b>Queue the siege battle</b> — open the Board Editor, record your attacking army at the target city. It resolves in the Combat Phase.' });
+        }
+        if (doExpand) pushExpand(doSiege ? 'separate' : null);
+        else          pushManeuver();
+        pushCrowns();
+        return steps;
+    }
+
+    // Fallback
+    steps.push({ id:'check', text:'<b>' + card + '</b> — resolve per rulebook. ✓ when done.' });
+    steps.push({ id:'board', text:'<b>Update board state</b> if anything changed.' });
+    return steps;
+}
+
+
+// ================================================================
+// HUMAN INTERACTIVE TURN FLOW
+// ================================================================
+// leaveBehindPlayer: human rule is always 1 unit (not tax-value)
+function leaveBehindPlayer(_name) { return 1; }
+
+// ── Board query helpers ────────────────────────────────────────
+function humanIsDisputed(name) {
+    return (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
+}
+function humanOwnedCities() {
+    const pc = S.playerColor;
+    return Object.keys(G.board).filter(n => G.board[n].owner === pc && (T[n]?.tax||0) > 0)
+        .map(n => ({ name:n, tax:T[n].tax, units:totalUnitCount(n), hasCastle:!!G.board[n].castle }));
+}
+function humanMoveFromOpts() {
+    const pc = S.playerColor;
+    return Object.keys(G.board).filter(n =>
+        G.board[n].owner === pc && !humanIsDisputed(n) && totalUnitCount(n) > 1
+    ).map(n => ({ name:n, tax:T[n]?.tax||0, units:totalUnitCount(n), movable:totalUnitCount(n)-1 }));
+}
+function humanExpandToOpts(from) {
+    const pc = S.playerColor;
+    const hasSiege = (G.board[from]?.units?.S||0) > 0;
+    return (T[from]?.adj||[]).filter(n => {
+        if (!G.board[n]) return false;
+        if ((T[n]?.tax||0) === 0) return false;      // must be a city
+        if (G.board[n].owner === pc) return false;    // can't expand into own city
+        if (G.board[n].castle && !hasSiege) return false;             // any castle requires a siege engine
+        return true;
+    }).map(n => ({
+        name:n, owner:G.board[n].owner||'neutral', tax:T[n]?.tax||0,
+        units:totalUnitCount(n), hasCastle:!!G.board[n].castle, via:null,
+        needsSiege: G.board[n].castle && !hasSiege
+    }));
+}
+function humanSplitExpandToOpts(from) {
+    const pc = S.playerColor, seen = new Set(), results = [];
+    const hasSiege = (G.board[from]?.units?.S||0) > 0;
+    function canTarget(n) {
+        if (!G.board[n] || (T[n]?.tax||0)===0) return false;      // city only
+        if (G.board[n].owner === pc) return false;                  // not own city
+        if (G.board[n].castle && !hasSiege) return false;             // any castle requires a siege engine
+        return true;
+    }
+    for (const adj of (T[from]?.adj||[])) {
+        if (!canTarget(adj)||seen.has(adj)) continue;
+        seen.add(adj); results.push({name:adj,via:null,owner:G.board[adj].owner,tax:T[adj].tax,hasCastle:!!G.board[adj].castle,units:totalUnitCount(adj)});
+    }
+    for (const mid of (T[from]?.adj||[])) {
+        if (!G.board[mid]||G.board[mid].owner!==pc) continue;
+        for (const dest of (T[mid]?.adj||[])) {
+            if (dest===from||seen.has(dest)||!canTarget(dest)) continue;
+            seen.add(dest); results.push({name:dest,via:mid,owner:G.board[dest].owner,tax:T[dest].tax,hasCastle:!!G.board[dest].castle,units:totalUnitCount(dest)});
+        }
+    }
+    return results;
+}
+function humanManeuverToOpts(from) {
+    const pc = S.playerColor, results = [], visited = new Set([from]);
+    const queue = [{name:from,hops:0,via:null}];
+    while (queue.length) {
+        const {name:cur,hops,via:prevVia} = queue.shift();
+        if (hops>=2) continue;
+        for (const adj of (T[cur]?.adj||[])) {
+            if (visited.has(adj)||!G.board[adj]||G.board[adj].owner!==pc) continue;
+            visited.add(adj);
+            const via = hops===1 ? prevVia||cur : null;
+            results.push({name:adj,hops:hops+1,disputed:humanIsDisputed(adj),units:totalUnitCount(adj),via});
+            if (!humanIsDisputed(adj)) queue.push({name:adj,hops:hops+1,via:via||cur});
+        }
+    }
+    return results;
+}
+function humanSiegeFromOpts() {
+    const pc = S.playerColor;
+    return Object.keys(G.board).filter(n =>
+        G.board[n].owner===pc && !humanIsDisputed(n) && (G.board[n].units?.S||0)>0 && totalUnitCount(n)>1
+    ).map(n => ({name:n, units:totalUnitCount(n)}));
+}
+function humanSiegeToOpts(from) {
+    const pc = S.playerColor;
+    return (T[from]?.adj||[]).filter(n => G.board[n]&&G.board[n].castle&&G.board[n].owner!==pc)
+        .map(n => ({name:n, owner:G.board[n].owner||'neutral', tax:T[n]?.tax||0, units:totalUnitCount(n)}));
+}
+function humanSpendOpts() {
+    const coins = G.coins[S.playerColor]||0;
+    return Object.keys(SPEND_TABLE).map(Number).filter(k=>k<=coins).sort((a,b)=>b-a)
+        .map(k => ({cost:k, items:SPEND_TABLE[k]}));
+}
+// Moving units: leave 1 weakest unit behind
+function humanMovingUnits(from) {
+    const u = Object.assign({F:0,A:0,C:0,S:0}, G.board[from]?.units);
+    for (const k of ['F','A','C','S']) { if (u[k]>0) { u[k]--; break; } }
+    return u;
+}
+// Siege: must include Siege Engine; leave 1 non-siege behind
+function humanSiegeMovingUnits(from) {
+    const u = Object.assign({F:0,A:0,C:0,S:0}, G.board[from]?.units);
+    let leftOne=false;
+    for (const k of ['F','A','C']) { if(!leftOne&&u[k]>0){u[k]--;leftOne=true;break;} }
+    if (!leftOne&&u.S>0) { u.S--; }
+    return u;
+}
+// Apply a move to G.board; returns result object
+function applyHumanMove(from, to, moving) {
+    const pc = S.playerColor;
+    const defOwner = G.board[to]?.owner || 'neutral';
+    // Deduct from source
+    ['F','A','C','S'].forEach(k => { G.board[from].units[k]=Math.max(0,(G.board[from].units[k]||0)-(moving[k]||0)); });
+    if (defOwner === pc) {
+        ['F','A','C','S'].forEach(k => { G.board[to].units[k]=(G.board[to].units[k]||0)+(moving[k]||0); });
+        return {type:'friendly', outcome:`Moved to ${to}.`, boardReminder:`Move <b>${unitStr(moving)}</b> from ${from} to <b>${to}</b> on your board.`};
+    } else if (defOwner === 'neutral') {
+        G.board[to].owner = pc;
+        G.board[to].units = {F:moving.F||0,A:moving.A||0,C:moving.C||0,S:moving.S||0};
+        const cv = crownValueOfCity(to);
+        if (cv>0) { G.crowns[pc]=(G.crowns[pc]||0)+cv; checkWin(pc); }
+        const crownNote = cv>0 ? ` +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[pc]} total)` : '';
+        if (CITY_SHIELDS[to]) { G.shields=G.shields||{}; G.shields[to]=pc; }
+        return {type:cv>0?'capture_crown':'capture', crowns:cv, outcome:`Captured ${to}!${crownNote}`, boardReminder:`Move <b>${unitStr(moving)}</b> to <b>${to}</b>. Change ownership flag to yours.${crownNote}`};
+    } else {
+        if (!G.roundCombats) G.roundCombats=[];
+        const already=G.roundCombats.some(c=>c.from===from&&c.to===to&&c.color===pc);
+        if (!already) G.roundCombats.push({color:pc,from,to,movingUnits:{...moving},movable:Object.values(moving).reduce((a,b)=>a+b,0),isEnemy:true,_prededucted:true});
+        return {type:'combat', outcome:`⚔ Battle queued vs ${defOwner}.`, boardReminder:`Move <b>${unitStr(moving)}</b> from <b>${from}</b>. Note the pending attack on <b>${to}</b> — it resolves in the Combat Phase.`};
+    }
+}
+
+// ── Flow construction ──────────────────────────────────────────
+function buildHumanFlow(card, variant) {
+    const pc = S.playerColor;
+    const hasBerlin = !!(G.shields && G.shields['Berlin'] === pc);
+    const steps = [];
+    function mk(type, label, optional=false) {
+        const compound = ['expand','split_expand','maneuver','siege'].includes(type);
+        return {type, label, optional, state: compound ? 'pick_from' : 'pending', from:null, to:null, summary:null, boardReminder:null};
+    }
+    function addExpand(lbl) { steps.push(mk('expand', lbl||'EXPAND — choose your move')); }
+    function addManeuver(lbl, opt=false) { steps.push(mk('maneuver', lbl||'MANEUVER — choose your move', opt)); }
+    function addBerlinBonus() { if (hasBerlin) steps.push(mk('maneuver', 'BERLIN BONUS — MANEUVER (optional)', true)); }
+
+    if (card === 'TAX OR SPEND') {
+        if (variant==='TAX') steps.push(mk('tax_city','TAX — choose a city to tax'));
+        else                  steps.push(mk('spend','SPEND — choose a purchase'));
+    }
+    else if (card === 'SPLIT EXPAND OR MANEUVER') {
+        if (variant==='SPLIT_EXPAND') { steps.push(mk('split_expand','SPLIT EXPAND — choose your move')); addBerlinBonus(); }
+        else addManeuver();
+    }
+    else if (card === 'KING ME / TAX OR SPEND') {
+        const doKM = variant==='KINGME_TAX'||variant==='KINGME_SPEND';
+        if (doKM) steps.push(mk('kingme','KING ME (BONUS) — claim First Player'));
+        if (variant==='KINGME_TAX'||variant==='TAX') steps.push(mk('tax_city','TAX — choose a city to tax'));
+        else                                          steps.push(mk('spend','SPEND — choose a purchase'));
+    }
+    else if (card === 'FORTIFY / EXPAND OR MANEUVER') {
+        const doFort = variant==='FORTIFY_EXPAND'||variant==='FORTIFY_MANEUVER';
+        if (doFort) steps.push(mk('fortify_city','FORTIFY (BONUS) — choose a city'));
+        if (variant==='FORTIFY_EXPAND'||variant==='EXPAND') { addExpand(); addBerlinBonus(); }
+        else addManeuver();
+    }
+    else if (card === 'SIEGE ASSAULT / EXPAND OR MANEUVER') {
+        const doSiege = variant==='SIEGE_EXPAND'||variant==='SIEGE_MANEUVER';
+        if (doSiege) steps.push(mk('siege','SIEGE ASSAULT (BONUS) — choose target'));
+        if (variant==='SIEGE_EXPAND'||variant==='EXPAND') { addExpand(); addBerlinBonus(); }
+        else addManeuver();
+    }
+    return steps;
+}
+
+// ── Action handlers ────────────────────────────────────────────
+// Unit costs for free-form spend builder
+const UNIT_COSTS = { F:1, A:2, C:3, S:10, Castle:12 };
+function humanCastleCost() {
+    // Berlin shield: castles cost 3 fewer coins for the castle-holder
+    const hasBerlin = !!(G.shields && G.shields['Berlin'] === S.playerColor);
+    return hasBerlin ? 9 : 12;
+}
+const UNIT_NAMES = { F:'Footman', A:'Archer', C:'Cavalry', S:'Siege Engine', Castle:'Castle' };
+const UNIT_PLURAL= { F:'Footmen', A:'Archers', C:'Cavalry', S:'Siege Engines', Castle:'Castles' };
+const MIN_SPEND  = 5;
+
+function spendCartTotal() {
+    const cart = G.humanSpendCart || {};
+    return Object.entries(cart).reduce((s,[k,n]) => {
+        const cost = k==='Castle' ? humanCastleCost() : (UNIT_COSTS[k]||0);
+        return s + cost*n;
+    }, 0);
+}
+function spendCartSummary(cart) {
+    return Object.entries(cart).filter(([,n])=>n>0)
+        .map(([k,n]) => `${n} ${n===1?UNIT_NAMES[k]:UNIT_PLURAL[k]}`).join(' + ') || '—';
+}
+function hfSpendAdjust(k, delta) {
+    if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+    const coins   = G.coins[S.playerColor]||0;
+    const current = G.humanSpendCart[k]||0;
+    const cost    = UNIT_COSTS[k]||1;
+    const newVal  = current + delta;
+    if (newVal < 0) return;
+    const newTotal = spendCartTotal() - current*cost + newVal*cost;
+    if (newTotal > coins) return;        // can't exceed budget
+    G.humanSpendCart[k] = newVal;
+    renderHumanTurn();
+}
+function hfSpendApply(idx) {
+    const pc   = S.playerColor;
+    const cart = G.humanSpendCart || {};
+    const total= spendCartTotal();
+    if (total < MIN_SPEND) return;
+    const step = G.humanFlow[idx];
+    if (!step) return;
+    // Deduct coins immediately
+    G.coins[pc] = Math.max(0, (G.coins[pc]||0) - total);
+    // Constantinople shield: bonus 4 Footmen to place alongside Siege Engine
+    const hasCon = (cart.S>0) && CITY_SHIELDS['Constantinople']?.trigger==='spend' && G.shields?.['Constantinople']===pc;
+    const toPlace = {
+        F: (cart.F||0) + (hasCon ? 4 : 0),
+        A: cart.A||0, C: cart.C||0, S: cart.S||0, Castle: cart.Castle||0
+    };
+    step.toPlace     = {...toPlace};       // original totals
+    step.remaining   = {...toPlace};       // countdown as player allocates
+    step.placements  = {};                 // { terrName: {F,A,C,S,Castle} }
+    step.kievShield  = !!(CITY_SHIELDS['Kiev']?.trigger==='spend' && G.shields?.['Kiev']===pc);
+    step.conShield   = hasCon;
+    step.spentCoins  = total;
+    step.spentSummary= spendCartSummary(cart);
+    step.state       = 'place_units';
+    G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+    render();
+    renderHumanTurn();
+}
+
+function hfPlaceAdjust(idx, terr, k, delta) {
+    const step = G.humanFlow[idx];
+    if (!step || step.state !== 'place_units') return;
+    if (!step.placements[terr]) step.placements[terr] = {F:0,A:0,C:0,S:0,Castle:0};
+    const cur = step.placements[terr][k]||0;
+    const rem = step.remaining[k]||0;
+    if (delta > 0 && rem <= 0) return;
+    if (delta < 0 && cur <= 0) return;
+    step.placements[terr][k] = cur + delta;
+    step.remaining[k]        = rem - delta;
+    renderHumanTurn();
+}
+
+function hfPlaceConfirm(idx) {
+    const pc   = S.playerColor;
+    const step = G.humanFlow[idx];
+    if (!step || step.state !== 'place_units') return;
+    // Apply placements to G.board
+    for (const [terr, units] of Object.entries(step.placements)) {
+        if (!G.board[terr]) continue;
+        for (const k of ['F','A','C','S']) {
+            G.board[terr].units[k] = (G.board[terr].units[k]||0) + (units[k]||0);
+        }
+        if (units.Castle && !G.board[terr].castle) G.board[terr].castle = true;
+    }
+    // Build placement summary for board reminder
+    const placeSummary = Object.entries(step.placements)
+        .filter(([,u]) => Object.values(u).some(n=>n>0))
+        .map(([terr,u]) => {
+            const s = ['F','A','C','S'].filter(k=>u[k]>0).map(k=>`${u[k]} ${UNIT_PLURAL[k]}`).join('+');
+            const c = u.Castle ? (s?', Castle':'Castle') : '';
+            return `${terr}: ${s}${c}`;
+        }).join(' | ');
+    step.state       = 'done';
+    step.summary     = `Spent ${step.spentCoins} coins on ${step.spentSummary}. Placed across ${Object.keys(step.placements).filter(t=>Object.values(step.placements[t]).some(n=>n>0)).length} territory/ies.`;
+    step.boardReminder = placeSummary
+        ? `Apply on physical board: ${placeSummary}.`
+        : null;
+    if (step.conShield) step.boardReminder = (step.boardReminder||'') + `<br>🛡 CONSTANTINOPLE: +4 Footmen included (placed with Siege Engine).`;
+    if (step.kievShield) step.boardReminder = (step.boardReminder||'') + `<br>🛡 KIEV: Units may be placed in non-city supply territories.`;
+    render();
+    renderHumanTurn();
+}
+
+// hfSelect: picks a FROM territory (or confirms single-choice steps)
+function hfSelect(idx, choice) {
+    const pc = S.playerColor;
+    const step = G.humanFlow[idx];
+    if (!step) return;
+    const compound = ['expand','split_expand','maneuver','siege'].includes(step.type);
+    if (compound) {
+        // choice = territory name (from)
+        step.from = choice;
+        step.state = 'pick_to';
+        renderHumanTurn(); return;
+    }
+    // Simple steps: apply effect immediately
+    if (step.type === 'kingme') {
+        G.pendingFirst = pc;
+        addLog('You claimed First Player — takes effect next round.');
+        step.state='done'; step.summary='First Player marker claimed.';
+    }
+    else if (step.type === 'tax_city') {
+        const city = choice;
+        const yld = taxYield(pc, city);
+        G.coins[pc] = (G.coins[pc]||0) + yld;
+        step.state='done';
+        step.summary=`Taxed ${city}: +${yld} coins (total now ${G.coins[pc]}).`;
+        // Shield bonus: auto-apply
+        const sh = CITY_SHIELDS[city];
+        if (sh && sh.trigger==='tax' && G.shields?.[city]===pc) {
+            let added = {};
+            if (city==='Paris')  { G.board[city].units.C++; G.board[city].units.F++; added={C:1,F:1}; }
+            if (city==='Madrid') { G.board[city].units.F+=4;  added={F:4}; }
+            if (city==='London') { G.board[city].units.A+=2;  added={A:2}; }
+            if (Object.keys(added).length)
+                step.boardReminder=`🛡 ${sh.reminder}<br><b>Place ${unitStr(added)} in ${city} on your physical board.</b>`;
+        }
+        render();
+    }
+    else if (step.type === 'spend') {
+        // spend is now handled by hfSpendApply; this branch is a no-op fallback
+    }
+    else if (step.type === 'fortify_city') {
+        const city = choice;
+        const count = G.board[city]?.castle ? 4 : 3;
+        G.board[city].units.F = (G.board[city].units.F||0) + count;
+        step.state='done';
+        step.summary=`Fortified ${city}: +${count} Footmen (now ${totalUnitCount(city)} total).`;
+        step.boardReminder=`Place <b>${count} Footmen</b> in <b>${city}</b> on your physical board.`;
+    }
+    renderHumanTurn();
+}
+
+// hfSelectTo: picks the TO territory for compound steps
+function hfSelectTo(idx, to) {
+    const pc = S.playerColor;
+    const step = G.humanFlow[idx];
+    if (!step) return;
+    const from = step.from;
+    const moving = step.type==='siege' ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
+    const result = applyHumanMove(from, to, moving);
+    step.state='done'; step.to=to;
+    step.summary=`${from} → ${to} (${unitStr(moving)}). ${result.outcome}`;
+    step.boardReminder=result.boardReminder;
+    if (result.type==='capture_crown') addLog(`You captured ${to} (+${result.crowns} crown${result.crowns>1?'s':''}!)`);
+    else if (result.type==='capture')  addLog(`You captured ${to}.`);
+    else if (result.type==='combat')   addLog(`⚔ Attack queued: ${from} → ${to}. Resolves in Combat Phase.`);
+    render();
+    renderHumanTurn();
+}
+
+function hfSkip(idx) {
+    const step = G.humanFlow[idx];
+    if (step) { step.state='skipped'; step.summary='Skipped.'; }
+    renderHumanTurn();
+}
+
+function hfUndo(idx) {
+    const step = G.humanFlow[idx];
+    if (step) { step.from=null; step.state='pick_from'; }
+    renderHumanTurn();
+}
+
+// ── Rendering ──────────────────────────────────────────────────
+function renderFlowStepBody(step, idx) {
+    const pc = S.playerColor;
+    const pHex = COLOR_HEX[pc]||'#888';
+
+    function optGrid(opts, clickFn) {
+        if (!opts.length) return '<div style="color:#aaa;font-size:0.82em;padding:4px 0;">None available.</div>';
+        return '<div class="hcp-grid">' + opts.map(o => {
+            const sel = step.pending_choice===o.value ? ' selected' : '';
+            return `<div class="hcp-card${sel}" onclick="${clickFn(o)}" style="cursor:pointer">${o.label}<div class="hcp-count">${o.sub}</div></div>`;
+        }).join('') + '</div>';
+    }
+
+    switch(step.type) {
+        case 'kingme':
+            return `<p style="font-size:0.83em;color:var(--ink-light);">You will be First Player at the start of next round.</p>
+                <button class="hcp-confirm" onclick="hfSelect(${idx},null)">✓ Claim First Player marker</button>`;
+
+        case 'tax_city': {
+            const cities = humanOwnedCities();
+            if (!cities.length) return `<p style="color:#aaa;font-size:0.83em;">You own no cities to tax.</p>`;
+            const btns = cities.map(c => {
+                const yld = taxYield(pc, c.name);
+                const sh = CITY_SHIELDS[c.name];
+                const shieldNote = (sh && sh.trigger==='tax' && G.shields?.[c.name]===pc) ? ' 🛡' : '';
+                return `<div class="hcp-card" onclick="hfSelect(${idx},'${c.name}')">
+                    <b>${c.name}${c.hasCastle?' 🏰':''}${shieldNote}</b>
+                    <div class="hcp-count">Tax ${c.tax} · ${c.units} units · <b>+${yld} coins</b></div>
+                </div>`;
+            }).join('');
+            return `<div style="font-size:0.8em;color:var(--ink-light);margin-bottom:6px;">Choose a city. Yield = Tax value + supply chain bonus.</div>
+                <div class="hcp-grid">${btns}</div>`;
+        }
+
+        case 'spend': {
+            // ── Placement sub-state ──────────────────────────────────────
+            if (step.state === 'place_units') {
+                const rem    = step.remaining || {};
+                const placed = step.placements || {};
+                const total  = step.toPlace   || {};
+                const pc2    = S.playerColor;
+                const kievShield = step.kievShield;
+
+                // All territories the player can place in
+                // Normal: owned cities + non-cities. Kiev shield: any supply territory.
+                const ownedTerrs = Object.keys(G.board).filter(n => G.board[n].owner === pc2)
+                    .sort((a,b) => (T[b]?.tax||0)-(T[a]?.tax||0) || a.localeCompare(b));
+
+                const anyLeft = Object.values(rem).some(n => n > 0);
+                const allPlaced = !anyLeft;
+
+                const unitTypes = ['F','A','C','S','Castle'].filter(k => (total[k]||0) > 0);
+
+                // Remaining pills
+                const remPills = unitTypes.map(k => {
+                    const r = rem[k]||0;
+                    const col = r > 0 ? '#c0392b' : '#1a7a3c';
+                    return `<span style="display:inline-flex;align-items:center;gap:4px;background:${r>0?'rgba(192,57,43,0.08)':'rgba(30,126,68,0.08)'};border:1px solid ${col};border-radius:12px;padding:2px 10px;font-size:0.8em;color:${col};font-weight:700;">${r} ${UNIT_PLURAL[k]} left</span>`;
+                }).join(' ');
+
+                // Territory rows
+                const terrRows = ownedTerrs.map(terr => {
+                    const isCity = (T[terr]?.tax||0) > 0;
+                    const hasCastle = !!G.board[terr]?.castle;
+                    const currUnits = totalUnitCount(terr);
+                    const terPlaced = placed[terr] || {};
+                    const validTypes = unitTypes.filter(k => k !== 'Castle' || isCity);
+                    if (!validTypes.length) return '';
+
+                    const controls = validTypes.map(k => {
+                        const qty = terPlaced[k]||0;
+                        const canAdd = (rem[k]||0) > 0 && (k !== 'Castle' || (!hasCastle && qty < 1));
+                        const canSub = qty > 0;
+                        const idxStr = idx;
+                        const terrEsc = terr.replace(/'/g,"\'");
+                        return `<div style="display:flex;align-items:center;gap:4px;margin-right:8px;">
+                            <span style="font-size:0.72em;color:var(--ink-light);min-width:18px;text-align:right;">${UNIT_NAMES[k].charAt(0)}</span>
+                            <button onclick="hfPlaceAdjust(${idxStr},'${terrEsc}','${k}',-1)" ${canSub?'':'disabled'} style="width:24px;height:24px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:0.9em;cursor:pointer;color:${canSub?'#8b1a1a':'#ccc'}">−</button>
+                            <span style="width:18px;text-align:center;font-size:0.88em;font-weight:700;">${qty}</span>
+                            <button onclick="hfPlaceAdjust(${idxStr},'${terrEsc}','${k}',1)" ${canAdd?'':'disabled'} style="width:24px;height:24px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:0.9em;cursor:pointer;color:${canAdd?'#1a7a3c':'#ccc'}">+</button>
+                        </div>`;
+                    }).join('');
+
+                    const placed_here = validTypes.filter(k=>(terPlaced[k]||0)>0);
+                    const bgColor = placed_here.length ? 'rgba(30,126,68,0.04)' : '#fff';
+
+                    return `<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #f0ede8;background:${bgColor};border-radius:4px;margin-bottom:2px;">
+                        <div style="flex:1;min-width:0;">
+                            <span style="font-size:0.85em;font-weight:700;">${terr}</span>
+                            <span style="font-size:0.72em;color:var(--ink-light);margin-left:4px;">${isCity?'city · Tax '+T[terr].tax:'non-city'} · ${currUnits} units${hasCastle?' 🏰':''}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;flex-wrap:wrap;">${controls}</div>
+                    </div>`;
+                }).filter(Boolean).join('');
+
+                const confirmBtn = `<button class="hcp-confirm" onclick="hfPlaceConfirm(${idx})" ${allPlaced?'':'disabled'}>
+                    ✓ Confirm placement${allPlaced?'':' — place all units first'}
+                </button>`;
+
+                return `<div style="margin-bottom:8px;">
+                    <div style="font-size:0.82em;font-weight:700;color:var(--accent);margin-bottom:6px;">Place your units — where do they go?</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">${remPills}</div>
+                    ${kievShield ? '<div class="shield-reminder" style="margin-bottom:8px;">🛡 KIEV SHIELD: You may place in non-city territories connected by supply line.</div>' : ''}
+                    <div style="background:#faf8f5;border-radius:8px;padding:4px 8px;max-height:320px;overflow-y:auto;">${terrRows}</div>
+                    ${confirmBtn}
+                </div>`;
+            }
+            // ── Builder sub-state (default) ──────────────────────────────
+            const coins = G.coins[pc]||0;
+            if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+            const cart  = G.humanSpendCart;
+            const total = spendCartTotal();
+            const left  = coins - total;
+            const canApply = total >= MIN_SPEND;
+
+            const rows = [
+                {k:'F',      plural:'Footmen',       cost:1 , multi:true },
+                {k:'A',      plural:'Archers',       cost:2 , multi:true },
+                {k:'C',      plural:'Cavalry',       cost:3 , multi:true },
+                {k:'S',      plural:'Siege Engines', cost:10, multi:true },
+                {k:'Castle', plural:'Castles',       cost:humanCastleCost(), multi:false},
+            ];
+            const rowsHTML = rows.map(r => {
+                const qty     = cart[r.k]||0;
+                const canAdd  = left >= r.cost && (r.multi || qty < 1);
+                const canSub  = qty > 0;
+                const addDis  = canAdd  ? '' : ' disabled';
+                const subDis  = canSub  ? '' : ' disabled';
+                const addCol  = canAdd  ? '#1a7a3c' : '#ccc';
+                const subCol  = canSub  ? '#8b1a1a' : '#ccc';
+                return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0ede8;">
+                    <div style="flex:1;font-size:0.88em;"><b>${r.plural}</b> <span style="color:var(--ink-light);font-size:0.8em;">${r.cost} coin${r.cost>1?'s':''} each</span></div>
+                    <button onclick="hfSpendAdjust('${r.k}',-1)"${subDis} style="width:30px;height:30px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:1.1em;cursor:pointer;font-weight:700;color:${subCol}">−</button>
+                    <div style="width:24px;text-align:center;font-size:1em;font-weight:700;">${qty||0}</div>
+                    <button onclick="hfSpendAdjust('${r.k}',1)"${addDis} style="width:30px;height:30px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:1.1em;cursor:pointer;font-weight:700;color:${addCol}">+</button>
+                </div>`;
+            }).join('');
+
+            const totalColor = total > coins ? '#c0392b' : total >= MIN_SPEND ? '#1a7a3c' : 'inherit';
+            const totalBar = `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0 4px;border-top:2px solid #e8e0d5;margin-top:4px;">
+                <div style="font-size:0.85em;color:var(--ink-light);flex:1;">${total>0?spendCartSummary(cart):'Nothing selected'}</div>
+                <div style="text-align:right;">
+                    <span style="font-size:1em;font-weight:700;color:${totalColor}">${total}</span>
+                    <span style="font-size:0.82em;color:var(--ink-light);"> / ${coins} coins (${left} left)</span>
+                </div>
+            </div>`;
+
+            const minNote = (total > 0 && total < MIN_SPEND)
+                ? `<div style="font-size:0.78em;color:#c0392b;margin:2px 0 6px;">Minimum spend is ${MIN_SPEND} coins — need ${MIN_SPEND-total} more.</div>` : '';
+
+            const applyBtn = `<button class="hcp-confirm" onclick="hfSpendApply(${idx})" ${canApply?'':'disabled'}>✓ Spend ${total} coin${total!==1?'s':''}${canApply?'':' (min 5 required)'}</button>`;
+            const skipBtn  = `<button class="btn-retreat" style="margin-top:6px;font-size:0.8em;" onclick="hfSkip(${idx})">Skip — don't spend this action</button>`;
+
+            return `<div style="font-size:0.8em;color:var(--ink-light);margin-bottom:6px;">You have <b>${coins} coins</b>. Build your purchase (1 coin = 1 Footman):</div>
+                <div style="background:#faf8f5;border-radius:8px;padding:4px 12px 8px;">${rowsHTML}${totalBar}</div>
+                ${minNote}${applyBtn}${skipBtn}`;
+        }
+
+        case 'fortify_city': {
+            const cities = humanOwnedCities();
+            if (!cities.length) return `<p style="color:#aaa;font-size:0.83em;">You have no cities to fortify right now.</p>
+                <button class="btn-retreat" onclick="hfSkip(${idx})">Skip fortify (no cities available)</button>`;
+            const btns = cities.map(c => {
+                const count = c.hasCastle ? 4 : 3;
+                return `<div class="hcp-card" onclick="hfSelect(${idx},'${c.name}')">
+                    <b>${c.name}${c.hasCastle?' 🏰':''}</b>
+                    <div class="hcp-count">+${count} Footmen · currently ${c.units} units → will have ${c.units+count}</div>
+                </div>`;
+            }).join('');
+            return `<div style="font-size:0.8em;color:var(--ink-light);margin-bottom:6px;">Choose a city (+3 Footmen, or +4 if it has a castle 🏰):</div>
+                <div class="hcp-grid">${btns}</div>`;
+        }
+
+        case 'expand':
+        case 'split_expand':
+        case 'maneuver':
+        case 'siege': {
+            if (step.state === 'pick_from') {
+                const opts = step.type==='siege' ? humanSiegeFromOpts() : humanMoveFromOpts();
+                if (!opts.length) {
+                    const msg = step.type==='siege' ? 'No territories with Siege Engines available.'
+                              : 'No territories to move from (need 2+ units, not in contested territory).';
+                    return `<p style="font-size:0.83em;color:#aaa;">${msg}</p>
+                        <button class="btn-retreat" onclick="hfSkip(${idx})">Skip (no valid move)</button>`;
+                }
+                const lbl = step.type==='siege' ? 'Which territory has your Siege Engine?'
+                          : step.type==='maneuver' ? 'Maneuver from which territory? (leave 1 unit behind; not from contested):'
+                          : 'Move from which territory? (leave 1 unit behind; not from contested):';
+                const btns = opts.map(o => {
+                    const mov = totalUnitCount(o.name)-1;
+                    const u = unitStr(G.board[o.name].units);
+                    return `<div class="hcp-card" onclick="hfSelect(${idx},'${o.name}')">
+                        <b>${o.name}${(T[o.name]?.tax>0)?' 🏙':''}</b>
+                        <div class="hcp-count">${u} · ${mov} can move</div>
+                    </div>`;
+                }).join('');
+                return `<div style="font-size:0.8em;color:var(--ink-light);margin-bottom:6px;">${lbl}</div>
+                    <div class="hcp-grid">${btns}</div>`;
+            } else {
+                // pick_to
+                const from = step.from;
+                const moving = step.type==='siege' ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
+                let toOpts;
+                if (step.type==='siege')         toOpts = humanSiegeToOpts(from);
+                else if (step.type==='split_expand') toOpts = humanSplitExpandToOpts(from);
+                else if (step.type==='maneuver') toOpts = humanManeuverToOpts(from);
+                else                             toOpts = humanExpandToOpts(from); // all adjacent
+                if (!toOpts.length) {
+                    const msg = step.type==='siege' ? `No adjacent castle cities to attack from ${from}.`
+                              : `No valid destinations from ${from}.`;
+                    return `<p style="font-size:0.83em;color:#aaa;">${msg}</p>
+                        <button class="btn-retreat" onclick="hfUndo(${idx})">← Choose different territory</button>`;
+                }
+                const lbl = step.type==='maneuver'
+                    ? `Maneuver <b>${unitStr(moving)}</b> from <b>${from}</b> to: <span style="font-size:0.78em;color:var(--ink-light)">(green=yours, grey=friendly, red=enemy)</span>`
+                    : `Move <b>${unitStr(moving)}</b> from <b>${from}</b> to:`;
+                const btns = toOpts.map(o => {
+                    const name = o.name;
+                    const owner = G.board[name]?.owner||'neutral';
+                    const isMine = owner===pc;
+                    const isEnemy = owner!=='neutral'&&!isMine;
+                    const borderColor = isMine ? '#1a7a3c' : isEnemy ? COLOR_HEX[owner]||'#c0392b' : '#888';
+                    const ownerLabel = isMine ? 'yours' : owner==='neutral' ? 'neutral' : owner.charAt(0).toUpperCase()+owner.slice(1);
+                    const units = totalUnitCount(name);
+                    const cityIcon = (T[name]?.tax>0) ? '🏙 ' : '';
+                    const castleIcon = G.board[name]?.castle ? ' 🏰' : '';
+                    const viaNote = o.via ? `<span style="font-size:0.78em;"> via ${o.via}</span>` : '';
+                    const hopsNote = o.hops ? ` (${o.hops} step${o.hops>1?'s':''})` : '';
+                    const siegeWarn = isEnemy&&G.board[name]?.castle&&!((G.board[from]?.units?.S||0)>0) ? ' ⚠ needs Siege Engine' : '';
+                    return `<div class="hcp-card" onclick="hfSelectTo(${idx},'${name}')" style="border-left:3px solid ${borderColor}">
+                        <b>${cityIcon}${name}${castleIcon}</b>
+                        <div class="hcp-count" style="color:${borderColor}">${ownerLabel}${units>0?' · '+units+' units':''}${hopsNote}${viaNote}${siegeWarn}</div>
+                    </div>`;
+                }).join('');
+                return `<div style="font-size:0.8em;margin-bottom:6px;">${lbl}</div>
+                    <div class="hcp-grid">${btns}</div>
+                    <button class="btn-retreat" style="margin-top:6px;" onclick="hfUndo(${idx})">← Change starting territory</button>`;
+            }
+        }
+    }
+    return '';
+}
+
+function renderFlowStep(step, idx) {
+    const flow = G.humanFlow||[];
+    const activeIdx = flow.findIndex(s => s.state!=='done' && s.state!=='skipped');
+    const isActive = idx===activeIdx;
+    const isDone   = step.state==='done';
+    const isSkipped= step.state==='skipped';
+
+    if (isDone) {
+        const reminder = step.boardReminder
+            ? `<div class="board-instruction" style="margin-top:6px;font-size:0.78em;">${step.boardReminder}</div>` : '';
+        return `<div class="ht-step done">
+            <div class="ht-cb">✓</div>
+            <div class="ht-text">
+                <span style="font-family:Cinzel,serif;font-size:0.78em;color:var(--ink-light);">${step.label}</span><br>
+                <span style="color:#1a7a3c;font-size:0.85em;">${step.summary||''}</span>
+                ${reminder}
+            </div>
+        </div>`;
+    }
+    if (isSkipped) {
+        return `<div class="ht-step done" style="opacity:0.45">
+            <div class="ht-cb" style="background:#aaa;border-color:#aaa;color:#fff;">—</div>
+            <div class="ht-text"><span style="font-size:0.8em;color:#aaa;">${step.label} — Skipped</span></div>
+        </div>`;
+    }
+    if (isActive) {
+        const body = renderFlowStepBody(step, idx);
+        const skipBtn = step.optional
+            ? `<button class="btn-retreat" style="margin-top:8px;font-size:0.78em;" onclick="hfSkip(${idx})">Skip this bonus</button>` : '';
+        const editorBtn = `<button style="margin-top:8px;background:none;border:1px solid #ccc;border-radius:5px;padding:4px 10px;font-size:0.72em;color:var(--ink-light);cursor:pointer;" onclick="openBoardEditor()">🗺 Board Editor (if needed)</button>`;
+        return `<div class="ht-step" style="border-left:3px solid var(--accent);background:#fff;">
+            <div class="ht-cb"></div>
+            <div class="ht-text">
+                <div style="font-family:Cinzel,serif;font-size:0.82em;font-weight:700;color:var(--accent);margin-bottom:8px;">${step.label}</div>
+                ${body}
+                ${skipBtn}
+                ${editorBtn}
+            </div>
+        </div>`;
+    }
+    // Pending (future step)
+    return `<div class="ht-step" style="opacity:0.3;pointer-events:none;">
+        <div class="ht-cb"></div>
+        <div class="ht-text"><span style="font-size:0.8em;">${step.label}</span></div>
+    </div>`;
+}
+
+
+
+// ── Card picker helpers ─────────────────────────────────────────
+function pickHumanCard(card) {
+    G._humanCardPending = card;
+    renderHumanTurn();
+}
+
+function confirmHumanCard() {
+    const card = G._humanCardPending;
+    if (!card) return;
+    const idx = G.humanDeck.indexOf(card);
+    if (idx !== -1) G.humanDeck.splice(idx, 1);
+    G.humanCard = card;
+    G._humanCardPending = null;
+    G.humanVariant = null;
+    // Cards with no variant go straight to checklist
+    if (humanCardVariants(card).length === 0) {
+        G.humanSteps = generateHumanSteps(card, null);
+        addLog('Your card: "' + card + '"');
+    }
+    G.humanTurnChecks = new Set();
+    G.humanBoardUpdated = false;
+    renderHumanTurn();
+}
+
+function pickHumanVariant(v) {
+    G._humanVariantPending = v;
+    renderHumanTurn();
+}
+
+function confirmHumanVariant() {
+    const v = G._humanVariantPending;
+    if (!v) return;
+    G.humanVariant = v;
+    G._humanVariantPending = null;
+    G.humanFlow = buildHumanFlow(G.humanCard, v);
+    addLog('Your card: "' + G.humanCard + '" — ' + v.replace(/_/g,' '));
+    G.humanTurnChecks = new Set();
+    G.humanBoardUpdated = false;
+    renderHumanTurn();
+}
+
+// ── Main render ─────────────────────────────────────────────────
 function renderHumanTurn() {
     const el = document.getElementById('human-view');
     if (!el) return;
 
-    const checks = G.humanTurnChecks || new Set();
-    const boardDone = G.humanBoardUpdated || false;
-    const allChecked = checks.size >= HUMAN_STEPS.length;
-    const stepsHTML = HUMAN_STEPS.map((s, i) => {
-        const done = checks.has(i);
-        if (s.id === 'board') {
-            const btnCls = boardDone ? 'ht-open-board done-board' : 'ht-open-board';
-            const btnTxt = boardDone ? '✓ Board State Updated' : '🗺 Open Board Editor to Update State';
-            return `<div class="ht-step ${done?'done':''}" onclick="htToggle(${i})">
-                <div class="ht-cb">${done?'✓':''}</div>
-                <div class="ht-text">
-                    ${s.text}
-                    <button class="${btnCls}" onclick="event.stopPropagation();htOpenBoard(${i})">${btnTxt}</button>
-                    ${!done ? `<button style="margin-top:6px;background:none;border:1px solid #ccc;border-radius:5px;padding:5px 12px;font-size:0.8em;color:var(--ink-light);cursor:pointer;width:100%"
-                        onclick="event.stopPropagation();htToggle(${i})">No moves this action — skip ›</button>` : ''}
-                </div>
-            </div>`;
-        }
-        return `<div class="ht-step ${done?'done':''}" onclick="htToggle(${i})">
-            <div class="ht-cb">${done?'✓':''}</div>
-            <div class="ht-text">${s.text}</div>
-        </div>`;
-    }).join('');
-
-    const pct = Math.round((checks.size / HUMAN_STEPS.length) * 100);
-
-    const pColor = S.playerColor || 'blue';
-    const pHex   = COLOR_HEX[pColor] || '#5bb8f5';
-    const lightC = ['blue','green','orange'].includes(pColor);
-    // Set CSS custom property so all .ht-* rules pick up the right color
+    const pc    = S.playerColor || 'blue';
+    const pHex  = COLOR_HEX[pc] || '#5bb8f5';
+    const lightC= ['blue','green','orange'].includes(pc);
     document.documentElement.style.setProperty('--player-color', pHex);
-    el.innerHTML = `
-        <div class="human-banner" style="margin-bottom:0;border-bottom:none;border-radius:8px 8px 0 0;border-color:${pHex};">
-            <h2 style="color:${pHex};">⚔ YOUR TURN — ACTION ${G.step} of 2</h2>
-            <p>Tap each step as you do it. Update the board state so automatons plan correctly.</p>
-        </div>
-        <div class="steps-panel" style="margin-bottom:12px;border-radius:0 0 8px 8px;">
-            <div class="steps-header" style="background:${pHex};color:${lightC?'#000':'#fff'}">YOUR ACTION CHECKLIST</div>
-            <div class="ht-progress"><div class="ht-progress-fill" style="width:${pct}%;background:${pHex}"></div></div>
-            <div class="human-turn-steps">${stepsHTML}</div>
-        </div>`;
 
-    // Unlock Complete Turn only when all steps checked
-    const btn = document.getElementById('complete-btn');
-    if (btn) btn.disabled = !allChecked;
-}
+    const btn   = document.getElementById('complete-btn');
 
-function htToggle(i) {
-    if (!G.humanTurnChecks) G.humanTurnChecks = new Set();
-    if (G.humanTurnChecks.has(i)) G.humanTurnChecks.delete(i);
-    else G.humanTurnChecks.add(i);
-    renderHumanTurn();
-}
+    const hdr = (sub) =>
+        '<div class="human-banner" style="margin-bottom:0;border-bottom:none;border-radius:8px 8px 0 0;border-color:' + pHex + ';">' +
+        '<h2 style="color:' + pHex + ';">⚔ YOUR TURN — ACTION ' + G.step + ' of 2</h2>' +
+        (sub ? '<p style="margin:0;font-size:0.82em;color:var(--ink-light);">' + sub + '</p>' : '') +
+        '</div>';
+    const panelTop = (lbl) =>
+        '<div class="steps-header" style="background:' + pHex + ';color:' + (lightC?'#000':'#fff') + '">' + lbl + '</div>';
 
-function htOpenBoard(stepIdx) {
-    G._htBoardStep = stepIdx;
-    openBoardEditor(); // defaults to current active player's color
-}
+    if (btn) btn.disabled = true;
 
-// Override closeBoardEditor to auto-check the board step if opened from human turn
-const _origCloseBoardEditor = closeBoardEditor;
-closeBoardEditor = function() {
-    _origCloseBoardEditor();
-    const isHumanTurn = activeColor() === S.playerColor;
-    if (isHumanTurn && G._htBoardStep !== undefined) {
-        G.humanBoardUpdated = true;
-        G.humanTurnChecks = G.humanTurnChecks || new Set();
-        G.humanTurnChecks.add(G._htBoardStep);
-        G._htBoardStep = undefined;
-        renderHumanTurn();
+    // ════════════════════════════════════════════════════════════
+    // Phase 1 — Pick a card
+    // ════════════════════════════════════════════════════════════
+    if (!G.humanCard) {
+        const counts = {};
+        (G.humanDeck||[]).forEach(c => { counts[c]=(counts[c]||0)+1; });
+        const types  = Object.keys(counts);
+        if (!types.length) {
+            el.innerHTML = hdr() +
+                '<div class="steps-panel" style="border-radius:0 0 8px 8px;"><div class="hcp-wrap">' +
+                '<div class="hcp-label">Deck empty — reshuffling next turn.</div></div></div>';
+            return;
+        }
+        const pending = G._humanCardPending||null;
+        const grid = types.map(c => {
+            const n = counts[c], sel = c===pending?' selected':'';
+            const esc = c.replace(/'/g,"\\'");
+            return '<div class="hcp-card'+sel+'" onclick="pickHumanCard(\''+esc+'\')">' +
+                c + '<div class="hcp-count">'+(n>1?n+' remaining':'last copy')+'</div></div>';
+        }).join('');
+        const discard = (G.humanDiscard||[]).length + '/8 played this cycle';
+        el.innerHTML = hdr('Step 1 of 3 — choose your card') +
+            '<div class="steps-panel" style="border-radius:0 0 8px 8px;">' +
+            panelTop('PLAY YOUR CARD') +
+            '<div class="hcp-wrap">' +
+              '<div class="hcp-label">Which card are you playing?</div>' +
+              '<div class="hcp-grid">' + grid + '</div>' +
+              '<button class="hcp-confirm" onclick="confirmHumanCard()" '+(pending?'':'disabled')+'>' +
+                (pending?'▶ Play: '+pending:'Select a card above') +
+              '</button>' +
+              '<div class="hcp-discard">'+discard+'</div>' +
+            '</div></div>';
+        return;
     }
-};
+
+    // ════════════════════════════════════════════════════════════
+    // Phase 2 — Choose variant (for all 8 cards)
+    // ════════════════════════════════════════════════════════════
+    if (!G.humanVariant && humanCardVariants(G.humanCard).length > 0) {
+        const variants = humanCardVariants(G.humanCard);
+        const pending  = G._humanVariantPending||null;
+        const grid = variants.map(v => {
+            const sel = v.value===pending?' selected':'';
+            const esc = v.value.replace(/'/g,"\\'");
+            return '<div class="hcp-card'+sel+'" onclick="pickHumanVariant(\''+esc+'\')">' + v.label + '</div>';
+        }).join('');
+        el.innerHTML = hdr('Step 2 of 3 — choose your action') +
+            '<div class="steps-panel" style="border-radius:0 0 8px 8px;">' +
+            '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(139,26,26,0.06);border-bottom:1px solid var(--border-light);">' +
+              '<span style="font-family:Cinzel,serif;font-size:0.78em;font-weight:700;color:var(--accent);">🃏 '+G.humanCard+'</span>' +
+            '</div>' +
+            panelTop('WHICH ACTION?') +
+            '<div class="hcp-wrap">' +
+              '<div class="hcp-label">What are you doing this action?</div>' +
+              '<div class="hcp-grid" style="grid-template-columns:1fr;">' + grid + '</div>' +
+              '<button class="hcp-confirm" onclick="confirmHumanVariant()" '+(pending?'':'disabled')+'>' +
+                (pending?'▶ Confirm: '+pending.replace(/_/g,' '):'Select an action above') +
+              '</button>' +
+            '</div></div>';
+        return;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Phase 3 — Interactive flow
+    // ════════════════════════════════════════════════════════════
+    const flow = G.humanFlow||[];
+    const allDone = flow.length > 0 && flow.every(s => s.state==='done'||s.state==='skipped');
+
+    const variantLabel = G.humanVariant ? ' — '+G.humanVariant.replace(/_/g,' ') : '';
+    const cardBadge =
+        '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(139,26,26,0.06);border-bottom:1px solid var(--border-light);">' +
+          '<span style="font-family:Cinzel,serif;font-size:0.78em;font-weight:700;color:var(--accent);">🃏 '+G.humanCard+variantLabel+'</span>' +
+          '<span style="flex:1"></span>' +
+          '<span style="font-size:0.7em;color:var(--ink-light);">'+G.humanDeck.length+' left in deck</span>' +
+        '</div>';
+
+    const done  = flow.filter(s=>s.state==='done'||s.state==='skipped').length;
+    const total = flow.length;
+    const pct   = total ? Math.round(done/total*100) : 100;
+
+    const stepsHTML = flow.map((s,i) => renderFlowStep(s,i)).join('');
+
+    el.innerHTML = hdr('Step 3 of 3 — complete each action') +
+        '<div class="steps-panel" style="border-radius:0 0 8px 8px;">' +
+        cardBadge +
+        panelTop('YOUR ACTION') +
+        '<div class="ht-progress"><div class="ht-progress-fill" style="width:'+pct+'%;background:'+pHex+'"></div></div>' +
+        '<div class="human-turn-steps">' + stepsHTML + '</div>' +
+        '</div>';
+
+    if (btn) btn.disabled = !allDone;
+}
+
 
 
 // Show "Stuck? Force advance" hint after Complete Turn is disabled for 8 seconds
@@ -3748,7 +4769,14 @@ function renderCombatPhase() {
 
         let detail = '';
         if (resolved) {
-            detail = `<div class="cp-auto-log">${b._log || ''}</div>`;
+            if (b._htmlLog && b._htmlLog.length) {
+                const sections = b._htmlLog.map(s =>
+                    `<div style="border-bottom:1px dotted #ddd;padding:6px 0;">${s}</div>`
+                ).join('');
+                detail = `<div class="cp-auto-log">${sections}</div>`;
+            } else {
+                detail = `<div class="cp-auto-log">${b._log || ''}</div>`;
+            }
         } else if (isActive) {
             detail = humanInvolved
                 ? renderCPHumanBattle(b, i)
@@ -3782,6 +4810,7 @@ function renderCPAutoBattle(b, idx) {
     G.roundCombats[idx]._resolved = true;
     G.roundCombats[idx]._result = result.winner === b.color ? 'Attacker won' : result.winner === 'defender' ? 'Defender held' : 'Draw';
     G.roundCombats[idx]._log = result.log;
+    G.roundCombats[idx]._htmlLog = result.htmlLog;
     applyBattleResult(b, result);
 
     // Move to next battle
@@ -3830,80 +4859,199 @@ function launchCPHumanCombat(idx) {
     CP.returnToCombatPhase = true;
 }
 
+// ── Dice + unit helpers ───────────────────────────────────────────
+const DICE_GLYPHS = ['','⚀','⚁','⚂','⚃','⚄','⚅'];
+function rollDice(n, threshold=4) {
+    // Returns array of {value, hit}
+    const rolls = [];
+    for (let i=0;i<n;i++) {
+        const v = Math.ceil(Math.random()*6);
+        rolls.push({ value:v, hit: v >= threshold });
+    }
+    return rolls;
+}
+function diceRowHTML(rolls) {
+    if (!rolls || !rolls.length) return '';
+    const glyphs = rolls.map(r =>
+        `<span class="die ${r.hit?'hit':'miss'}" title="${r.value} — ${r.hit?'HIT':'miss'}">${DICE_GLYPHS[r.value]}</span>`
+    ).join('');
+    const hits = rolls.filter(r=>r.hit).length;
+    return `<div class="dice-row">${glyphs}<span style="margin-left:6px;font-size:0.85em;color:#555;">${hits} hit${hits!==1?'s':''}</span></div>`;
+}
+function unitName(k, n) {
+    if (k==='F') return n===1 ? 'Footman' : 'Footmen';
+    if (k==='A') return n===1 ? 'Archer'  : 'Archers';
+    if (k==='C') return 'Cavalry';
+    if (k==='S') return n===1 ? 'Siege Engine' : 'Siege Engines';
+    return k;
+}
+function unitDiffStr(before, after) {
+    // Returns "2 Footmen + 1 Siege Engine" removed
+    const parts = [];
+    for (const k of ['S','C','A','F']) {
+        const lost = Math.max(0, (before[k]||0) - (after[k]||0));
+        if (lost > 0) parts.push(`${lost} ${unitName(k, lost)}`);
+    }
+    return parts.join(' + ') || 'nothing';
+}
+function unitRemainStr(u) {
+    const parts = [];
+    for (const k of ['C','A','F','S']) {
+        if ((u[k]||0) > 0) parts.push(`${u[k]} ${unitName(k, u[k])}`);
+    }
+    return parts.join(' + ') || 'none';
+}
+function snapUnits(u) { return {F:u.F||0,A:u.A||0,C:u.C||0,S:u.S||0}; }
+
 // ── Resolve automaton battle with dice ────────────────────────────
 function resolveAutoBattle(b) {
-    // Use only the units that were designated to move, not ALL units at origin
-    // (leave-behind units stay in the territory and don't fight)
     const att = b.movingUnits || G.board[b.from]?.units || {};
     const def = G.board[b.to]?.units || {};
-    const log = [];
+    const defColor = G.board[b.to]?.owner || 'neutral';
+    const attColorName = cName(b.color);
+    const defColorName = cName(defColor);
 
-    let aUnits = { ...att };
-    let dUnits = { ...def };
+    let aUnits = snapUnits(att);
+    let dUnits = snapUnits(def);
+    const aStart = snapUnits(att);
+    const dStart = snapUnits(def);
+    const htmlLog = [];
 
-    function rollHits(dice, threshold=4) {
-        let hits = 0;
-        for(let i=0;i<dice;i++) if(Math.ceil(Math.random()*6)>=threshold) hits++;
-        return hits;
-    }
-    function total(u) { return (u.F||0)+(u.A||0)+(u.C||0)+(u.S||0); }
+    function total(u) { return u.F+u.A+u.C+u.S; }
     function removeCasualties(u, n) {
         let rem = n;
-        // Remove weakest first: F → A → C → S
         for (const k of ['F','A','C','S']) {
             const take = Math.min(u[k]||0, rem);
-            u[k] = (u[k]||0) - take; rem -= take;
+            u[k] -= take; rem -= take;
             if (rem <= 0) break;
         }
     }
 
-    // Siege pre-battle: only the ATTACKER's siege engines fire, and only if the
-    // target has a castle. Defender siege engines do NOT get a pre-battle shot.
-    const aSiege = aUnits.S||0;
+    // ── Siege pre-fire ──
+    const aSiege = aUnits.S;
     const targetHasCastle = G.board[b.to]?.castle || false;
     if (aSiege > 0 && targetHasCastle) {
-        const hits = rollHits(aSiege*2, 4);
+        const rolls = rollDice(aSiege*2, 4);
+        const hits = rolls.filter(r=>r.hit).length;
+        const dBefore = snapUnits(dUnits);
         removeCasualties(dUnits, hits);
-        log.push(`Siege pre-fire: ${aSiege} siege engine(s) vs castle → ${hits} hits on defender.`);
+        const lost = unitDiffStr(dBefore, dUnits);
+        htmlLog.push(
+            `<div style="margin-bottom:4px"><b>Siege pre-fire</b> (${aSiege} engine${aSiege>1?'s':''} × 2 dice vs castle):</div>`+
+            diceRowHTML(rolls)+
+            (hits>0
+                ? `<div class="board-instruction"><b>Remove from ${b.to}:</b> ${lost}<br><b>Defender ${defColorName} now has:</b> ${unitRemainStr(dUnits)}</div>`
+                : `<div style="color:#888;font-size:0.8em">No casualties.</div>`)
+        );
     } else if (aSiege > 0) {
-        log.push(`Siege engines present but no castle at ${b.to} — no pre-battle fire.`);
-    }
-    // Archer volley
-    const aArch = aUnits.A||0, dArch = dUnits.A||0;
-    if (aArch+dArch > 0) {
-        const aHits = rollHits(aArch, 4), dHits = rollHits(dArch, 4);
-        removeCasualties(dUnits, aHits);
-        removeCasualties(aUnits, dHits);
-        log.push(`Archers: att ${aArch} archers → ${aHits} hits; def ${dArch} archers → ${dHits} hits.`);
+        htmlLog.push(`<div style="color:#888;font-size:0.8em">Siege engines at ${b.to} — no castle, no pre-fire.</div>`);
     }
 
-    // Main combat rounds
+    // ── Archer volley ──
+    const aArch = aUnits.A, dArch = dUnits.A;
+    if (aArch+dArch > 0) {
+        const aRolls = rollDice(aArch, 4);
+        const dRolls = rollDice(dArch, 4);
+        const aHits = aRolls.filter(r=>r.hit).length;
+        const dHits = dRolls.filter(r=>r.hit).length;
+        const aBefore = snapUnits(aUnits), dBefore = snapUnits(dUnits);
+        removeCasualties(dUnits, aHits);
+        removeCasualties(aUnits, dHits);
+        const attLost = unitDiffStr(aBefore, aUnits);
+        const defLost = unitDiffStr(dBefore, dUnits);
+        let html = `<div style="margin-bottom:4px"><b>Archer volley</b></div>`;
+        if (aArch > 0) html += `<div style="font-size:0.8em;color:#555">${attColorName} (${aArch} archer${aArch>1?'s':''})</div>`+diceRowHTML(aRolls);
+        if (dArch > 0) html += `<div style="font-size:0.8em;color:#555">${defColorName} (${dArch} archer${dArch>1?'s':''})</div>`+diceRowHTML(dRolls);
+        const instructions = [];
+        if (aHits > 0) instructions.push(`<b>Remove from ${b.to}:</b> ${defLost}`);
+        if (dHits > 0) instructions.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${attLost}`);
+        if (instructions.length) {
+            html += `<div class="board-instruction">${instructions.join('<br>')}</div>`;
+        }
+        htmlLog.push(html);
+    }
+
+    // ── Main combat rounds ──
     let rounds = 0;
     while (total(aUnits) > 0 && total(dUnits) > 0 && rounds < 10) {
         rounds++;
-        // Cavalry: 2 dice; Footmen, Archers, Siege Engines: 1 die each
-        const aDice = (aUnits.C||0)*2 + (aUnits.F||0) + (aUnits.A||0) + (aUnits.S||0);
-        const dDice = (dUnits.C||0)*2 + (dUnits.F||0) + (dUnits.A||0) + (dUnits.S||0);
-        const aHits = rollHits(aDice), dHits = rollHits(dDice);
+        const aDice = aUnits.C*2 + aUnits.F + aUnits.A + aUnits.S;
+        const dDice = dUnits.C*2 + dUnits.F + dUnits.A + dUnits.S;
+        const aRolls = rollDice(aDice);
+        const dRolls = rollDice(dDice);
+        const aHits = aRolls.filter(r=>r.hit).length;
+        const dHits = dRolls.filter(r=>r.hit).length;
+        const aBefore = snapUnits(aUnits), dBefore = snapUnits(dUnits);
         removeCasualties(dUnits, aHits);
         removeCasualties(aUnits, dHits);
-        log.push(`Round ${rounds}: att ${aDice}d→${aHits} hits; def ${dDice}d→${dHits} hits.`);
+        const attLost = unitDiffStr(aBefore, aUnits);
+        const defLost = unitDiffStr(dBefore, dUnits);
+
+        let html = `<div style="margin-bottom:3px"><b>Round ${rounds}</b></div>`;
+        html += `<div style="font-size:0.8em;color:#555">${attColorName} (${aDice} dice)</div>`+diceRowHTML(aRolls);
+        html += `<div style="font-size:0.8em;color:#555">${defColorName} (${dDice} dice)</div>`+diceRowHTML(dRolls);
+        const instructions = [];
+        if (aHits > 0) instructions.push(`<b>Remove from ${b.to}:</b> ${defLost}`);
+        if (dHits > 0) instructions.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${attLost}`);
+        if (!instructions.length) instructions.push('No casualties this round.');
+        html += `<div class="board-instruction">${instructions.join('<br>')}</div>`;
+        htmlLog.push(html);
     }
 
+    // ── Final board state ──
     const attSurv = total(aUnits), defSurv = total(dUnits);
     const winner = attSurv > 0 && defSurv === 0 ? b.color : attSurv === 0 ? 'defender' : 'draw';
-    log.push(winner === b.color ? `✓ Attacker captures ${b.to}! (${attSurv} survivors)` :
-             winner === 'defender' ? `✗ Defender holds ${b.to}! (${defSurv} survivors)` :
-             `⚡ Both sides eliminated.`);
-    return { winner, attSurv, defSurv, attUnits: aUnits, defUnits: dUnits, log: log.join('<br>') };
+
+    let outcomeHTML = '';
+    if (winner === b.color) {
+        outcomeHTML =
+            `<div class="board-instruction"><b>✓ ${attColorName} captures ${b.to}!</b><br>`+
+            `Remove all ${defColorName} units from <b>${b.to}</b>.<br>`+
+            `Place ${attColorName} survivors at <b>${b.to}</b>: <b>${unitRemainStr(aUnits)}</b>.<br>`+
+            (b.from !== '__editor__' ? `Remove ${unitDiffStr(aStart, aUnits)} from <b>${b.from}</b> (units that fought).` : '')+
+            `</div>`;
+    } else if (winner === 'defender') {
+        const attTotalLost = unitDiffStr(aStart, {F:0,A:0,C:0,S:0});
+        const defTotalRemain = unitRemainStr(dUnits);
+        outcomeHTML =
+            `<div class="board-instruction neutral"><b>✗ ${defColorName} holds ${b.to}!</b><br>`+
+            (b.from !== '__editor__'
+                ? `Remove all attacking ${attColorName} units from <b>${b.from}</b> that moved: <b>${unitRemainStr(b.movingUnits||aStart)}</b>.<br>`
+                : `All attacking ${attColorName} units eliminated.<br>`)+
+            `<b>${defColorName} remaining at ${b.to}:</b> ${defTotalRemain}</div>`;
+    } else {
+        outcomeHTML =
+            `<div class="board-instruction neutral"><b>⚡ Both sides eliminated!</b><br>`+
+            `Remove all ${attColorName} attacking units`+(b.from!=='__editor__'?` from <b>${b.from}</b>`:'')+`.<br>`+
+            `${b.to} is now <b>neutral</b> — remove all ${defColorName} units from it.</div>`;
+    }
+    htmlLog.push(outcomeHTML);
+
+    // Plain text log for the compact view (existing renderCombatPhase uses b._log)
+    const plainLog = [];
+    if (aSiege > 0 && targetHasCastle) plainLog.push(`Siege pre-fire.`);
+    if (aArch+dArch > 0) plainLog.push(`Archer volley.`);
+    // Count rounds
+    const roundCount = htmlLog.filter((_,i)=> i >= (aSiege>0?1:0) + (aArch+dArch>0?1:0) && i < htmlLog.length-1).length;
+    plainLog.push(`${roundCount} combat round${roundCount!==1?'s':''}.`);
+    plainLog.push(winner===b.color ? `✓ ${attColorName} captures ${b.to}! (${attSurv} survivors)` :
+                  winner==='defender' ? `✗ ${defColorName} holds ${b.to}! (${defSurv} survivors)` :
+                  `⚡ Both sides eliminated.`);
+
+    return {
+        winner, attSurv, defSurv,
+        attUnits: aUnits, defUnits: dUnits,
+        log: plainLog.join('<br>'),
+        htmlLog               // rich HTML blocks, joined with <hr> for display
+    };
 }
 
 function applyBattleResult(b, result) {
     const defColor = G.board[b.to]?.owner || 'neutral';
     if (result.winner === b.color) {
         // Attacker wins — move survivors to captured territory
-        // __editor__ battles have no origin territory to update
-        if (b.from !== '__editor__') {
+        // __editor__ battles and pre-deducted human moves don't need from-deduction
+        if (b.from !== '__editor__' && !b._prededucted) {
             G.board[b.from].units = Object.fromEntries(
                 Object.entries(G.board[b.from].units).map(([k,v])=>[k, Math.max(0, v-(b.movingUnits?.[k]||0))])
             );
@@ -3931,18 +5079,18 @@ function applyBattleResult(b, result) {
         showShieldReminder('Stockholm', b.color);   // toast for human
         applyShieldBonus('Stockholm', b.color, 'battle_win');  // auto-apply for automa
     } else if (result.winner === 'defender') {
-        // Defender holds — attacking units destroyed
-        if (b.from !== '__editor__') {
+        // Defender holds — attacking units destroyed (already gone from source for human attacks)
+        if (b.from !== '__editor__' && !b._prededucted) {
             ['F','A','C','S'].forEach(k => {
                 G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
             });
         }
         addLog(`${cName(defColor)} holds ${b.to} against ${cName(b.color)}.`);
     } else {
-        // Both wiped — territory goes neutral
+        // Both wiped — territory goes neutral (source already cleared for human attacks)
         G.board[b.to].units = {F:0,A:0,C:0,S:0};
         G.board[b.to].owner = 'neutral';
-        if (b.from !== '__editor__') {
+        if (b.from !== '__editor__' && !b._prededucted) {
             ['F','A','C','S'].forEach(k => {
                 G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
             });
