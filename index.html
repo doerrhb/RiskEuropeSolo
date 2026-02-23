@@ -76,8 +76,10 @@
         .p-name { font-family: 'Cinzel',serif; font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em;
                   color: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; gap: 4px; }
         .crown-badge { font-size: 11px; cursor: pointer; padding: 1px 3px; border-radius: 3px; opacity: 0.35; line-height: 1; transition: 0.15s; }
-        .player-tile.is-first .crown-badge { opacity: 1; filter: drop-shadow(0 0 4px gold); }
-        .player-tile.is-pending .crown-badge { opacity: 1; filter: drop-shadow(0 0 6px #ffeb3b); animation: pulse 1s infinite; }
+        .player-tile.is-first .crown-badge { opacity: 1; filter: drop-shadow(0 0 4px silver); }
+        .player-tile.is-saved { border-color: #b8860b; background: #fef9e7; }
+        .player-tile.is-eliminated { opacity: 0.45; filter: grayscale(0.7); }
+        .player-tile.is-pending .crown-badge { opacity: 1; filter: drop-shadow(0 0 6px #c0c0c0); animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.3)} }
         .coin-row { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 4px 0 3px; }
         .coin-count { font-family: 'Cinzel',serif; font-size: 1.28em; font-weight: 700; color: inherit; min-width: 24px; text-align: center; }
@@ -231,11 +233,11 @@
         /* Full board view */
         .fbs-section { margin-bottom:14px; }
         .fbs-section-hdr { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:6px; font-family:'Cinzel',serif; font-size:0.78em; font-weight:700; letter-spacing:0.06em; color:white; margin-bottom:4px; }
-        .fbs-row { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:1px solid rgba(0,0,0,0.05); font-size:0.83em; }
+        .fbs-row { display:grid; grid-template-columns:1fr 80px 110px; align-items:center; padding:6px 10px; border-bottom:1px solid rgba(0,0,0,0.05); font-size:0.83em; }
         .fbs-row:last-child { border-bottom:none; }
-        .fbs-row .fr-name { font-family:'Cinzel',serif; font-weight:700; color:var(--ink); flex:1; }
-        .fbs-row .fr-sub  { font-size:0.8em; color:var(--ink-light); flex:1; }
-        .fbs-row .fr-units { font-size:0.82em; color:var(--ink); text-align:right; }
+        .fbs-row .fr-name { font-family:'Cinzel',serif; font-weight:700; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .fbs-row .fr-sub  { font-size:0.78em; color:var(--ink-light); text-align:center; }
+        .fbs-row .fr-units { font-size:0.82em; color:var(--ink); text-align:right; white-space:nowrap; }
         .fbs-empty { color:var(--ink-light); font-style:italic; padding:6px 10px; font-size:0.82em; }
         .fbs-back-btn { display:flex; align-items:center; gap:5px; background:none; border:none; font-family:'Cinzel',serif; font-size:0.82em; color:var(--accent); cursor:pointer; padding:0 0 10px; font-weight:700; }
         .btn-full-board { width:100%; margin-top:10px; padding:11px; background:var(--ink); color:var(--gold-light); border:none; border-radius:7px; font-family:'Cinzel',serif; font-size:0.82em; font-weight:700; cursor:pointer; letter-spacing:0.04em; }
@@ -521,6 +523,20 @@
         .cp-end-btn:active { opacity:0.85; }
         .cp-end-btn:disabled { opacity:0.4; cursor:not-allowed; }
         .cp-next-btn { width:100%; padding:14px; background:var(--accent); color:white; border:none; border-radius:8px; font-family:'Cinzel',serif; font-size:0.95em; font-weight:700; cursor:pointer; margin-top:8px; }
+
+        
+        /* Shield reminder steps */
+        .shield-reminder {
+            background: linear-gradient(135deg, rgba(200,149,42,0.12), rgba(200,149,42,0.06));
+            border: 2px solid var(--gold);
+            border-radius: 7px;
+            padding: 9px 13px;
+            font-family: 'Cinzel', serif;
+            font-size: 0.82em;
+            font-weight: 700;
+            color: #7a5a00;
+            letter-spacing: 0.02em;
+        }
 
         </style>
 </head>
@@ -828,8 +844,8 @@ function leaveBehindCount(name) {
 }
 
 function leaveBehindPlayer(name) {
-    // Player rule: always leave just 1 unit behind
-    return 1;
+    // Same leave-behind rule applies to all players: Tax value for cities, 1 for non-urban
+    return T[name]?.tax > 0 ? T[name].tax : 1;
 }
 
 function movableCount(name, color) {
@@ -931,7 +947,8 @@ function decideSpendPlacements(color, purchase) {
     unitOrder.forEach(type => {
         const city = owned[cityIdx % owned.length];
         if (!city) return;
-        const existing = placements.find(p => p.territory === city && p.type === 'units');
+        // Only merge if same city AND same unit type
+        const existing = placements.find(p => p.territory === city && p.type === 'units' && p.unitType === type);
         if (existing) existing.count++;
         else placements.push({ territory: city, type:'units', unitType: type, count: 1 });
         cityIdx++;
@@ -1000,11 +1017,11 @@ function decideSplitExpand(color) {
             if (isEnemy && !canAttack(movable, defenders)) continue;
             candidates.push({ from:t, via:null, to:adj, movable, defenders, isEnemy, tax:T[adj].tax, hasCastle });
         }
-        // 2-step cities
+        // 2-step cities — can only pass through own territories (not neutral, not enemy)
         for (const mid of T[t].adj) {
             const midB = G.board[mid];
-            // Stop at enemy territory (cannot pass through)
-            if (midB.owner !== 'neutral' && midB.owner !== color) continue;
+            // Must pass through own territory (Risk Europe rule: supply line movement only)
+            if (midB.owner !== color) continue;
             for (const dest of T[mid].adj) {
                 if (dest === t) continue;
                 if (!T[dest] || T[dest].tax === 0) continue;
@@ -1050,13 +1067,17 @@ function decidePosition(color) {
 function decideFortify(color) {
     const opts = ownedBy(color).filter(n => T[n].tax > 0 || G.board[n].castle);
     if (!opts.length) return null;
+    // Capitals = starting cities (any city in CAPITALS list)
+    const capitalNames = new Set(CAPITALS.map(c => c.name));
     opts.sort((a,b) => {
         const ta = totalUnitCount(a), tb = totalUnitCount(b);
-        if (ta !== tb) return ta - tb;
+        if (ta !== tb) return ta - tb;                        // fewest units first
         const taxA = T[a].tax||0, taxB = T[b].tax||0;
-        if (taxA !== taxB) return taxB - taxA;
-        // capital beats regular city — both have tax so just roll die
-        return 0;
+        if (taxA !== taxB) return taxB - taxA;               // highest tax first
+        const capA = capitalNames.has(a) ? 1 : 0;
+        const capB = capitalNames.has(b) ? 1 : 0;
+        if (capA !== capB) return capB - capA;               // capital beats regular city
+        return 0;                                             // random (caller rolls die)
     });
     const t = opts[0];
     const addCount = G.board[t].castle ? 4 : 3;
@@ -1085,51 +1106,105 @@ function decideSiege(color) {
     return candidates[0];
 }
 
-function decideManeuver(color) {
+// Build all valid MANEUVER moves for a color.
+// Rules: move from one OWN territory to another OWN or DISPUTED territory,
+// up to 2 steps away, travelling only through OWN territories.
+// Cannot move out of a disputed territory. Stop immediately upon entering disputed.
+// "Disputed" = a pending battle queued in G.roundCombats for that territory.
+function getManeuverMoves(color) {
     const owned = ownedBy(color);
-    // Check if any own territory is adjacent to an enemy
-    const threatened = [];
-    for (const t of owned) {
-        for (const adj of T[t].adj) {
-            const adjB = G.board[adj];
-            if (adjB?.owner && adjB.owner !== color && adjB.owner !== 'neutral') {
-                threatened.push({ territory:t, tax: T[t].tax||0 });
-                break;
+    const isDisputed = (name) => (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
+
+    const moves = []; // { from, to, hops, movable }
+
+    for (const from of owned) {
+        // Cannot maneuver OUT of a disputed territory
+        if (isDisputed(from)) continue;
+        const movable = movableCount(from, color);
+        if (movable <= 0) continue;
+
+        // BFS up to 2 hops through own territories only
+        // Each node: { name, hops }
+        const visited = new Set([from]);
+        const queue = [{ name: from, hops: 0 }];
+
+        while (queue.length) {
+            const { name: cur, hops } = queue.shift();
+            if (hops >= 2) continue; // can't go further
+
+            for (const adj of (T[cur]?.adj || [])) {
+                if (visited.has(adj)) continue;
+                const adjOwner = G.board[adj]?.owner;
+                // Can only travel through own territories (or land in disputed)
+                if (adjOwner !== color) {
+                    // Can we land here? Only if it's own or disputed own territory
+                    // (neutral/enemy are not valid maneuver destinations)
+                    continue;
+                }
+                visited.add(adj);
+                const dest = adj;
+                const destHops = hops + 1;
+                if (dest !== from) {
+                    moves.push({ from, to: dest, hops: destHops, movable });
+                    // If disputed, stop here (can't pass through)
+                    if (!isDisputed(dest)) {
+                        queue.push({ name: dest, hops: destHops });
+                    }
+                }
             }
         }
     }
-    if (threatened.length > 0) {
-        threatened.sort((a,b) => b.tax - a.tax);
-        const target = threatened[0].territory;
-        // Find best adjacent own territory to reinforce from
-        let best = null;
-        for (const t of owned) {
-            if (t === target || !T[target].adj.includes(t)) continue;
-            const movable = movableCount(t, color);
-            if (movable <= 0) continue;
-            if (!best || movable > best.movable) best = { from:t, to:target, movable, reason:`Reinforce threatened ${target}` };
+    return moves;
+}
+
+function decideManeuver(color) {
+    const moves = getManeuverMoves(color);
+    if (!moves.length) return null;
+
+    // Priority 1: reinforce a threatened territory (own territory adjacent to enemy)
+    const isDisputed = (name) => (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
+    const threatened = new Set();
+    for (const t of ownedBy(color)) {
+        for (const adj of T[t].adj) {
+            const b = G.board[adj];
+            if (b?.owner && b.owner !== color && b.owner !== 'neutral') {
+                threatened.add(t);
+            }
         }
-        return best;
     }
-    // Nothing threatened — reinforce army adjacent to highest-tax enemy city
+    // Filter to moves whose destination is threatened
+    const defensiveMoves = moves.filter(m => threatened.has(m.to));
+    if (defensiveMoves.length) {
+        // Best defensive move: highest-tax destination, then most units arriving
+        defensiveMoves.sort((a,b) =>
+            (T[b.to].tax||0) - (T[a.to].tax||0) ||
+            b.movable - a.movable
+        );
+        const m = defensiveMoves[0];
+        return { from:m.from, to:m.to, movable:m.movable,
+            reason:`Reinforce threatened ${m.to} (Tax ${T[m.to].tax||0})${m.hops===2?' — 2-step maneuver':''}` };
+    }
+
+    // Priority 2: reinforce territory adjacent to highest-tax enemy city
     const enemyCities = ALL_CITIES
         .filter(c => G.board[c]?.owner && G.board[c].owner !== color && G.board[c].owner !== 'neutral')
         .sort((a,b) => T[b].tax - T[a].tax);
+
     for (const city of enemyCities) {
-        // Find own territories adjacent to this city
-        const adjOwn = owned.filter(t => T[city].adj.includes(t));
-        if (!adjOwn.length) continue;
-        adjOwn.sort((a,b) => totalUnitCount(a) - totalUnitCount(b));
-        const target = adjOwn[0]; // reinforce the weakest own territory near the enemy city
-        // Find adjacent own territory to move FROM
-        for (const t of owned) {
-            if (t === target || !T[target].adj.includes(t)) continue;
-            const movable = movableCount(t, color);
-            if (movable <= 0) continue;
-            return { from:t, to:target, movable, reason:`Reinforce near ${city} (Tax ${T[city].tax})` };
-        }
+        // Moves that land adjacent to this city
+        const frontlineMoves = moves.filter(m => T[city].adj.includes(m.to));
+        if (!frontlineMoves.length) continue;
+        frontlineMoves.sort((a,b) => b.movable - a.movable);
+        const m = frontlineMoves[0];
+        return { from:m.from, to:m.to, movable:m.movable,
+            reason:`Reinforce near ${city} (Tax ${T[city].tax})${m.hops===2?' — 2-step maneuver':''}` };
     }
-    return null;
+
+    // Priority 3: any legal maneuver (largest army to most useful position)
+    moves.sort((a,b) => b.movable - a.movable);
+    const m = moves[0];
+    return { from:m.from, to:m.to, movable:m.movable,
+        reason:`Reposition army${m.hops===2?' — 2-step maneuver':''}` };
 }
 
 // ================================================================
@@ -1143,6 +1218,11 @@ function applyFortify(territory, count) {
 
 function applySpend(color, purchase, placements) {
     G.coins[color] = Math.max(0, G.coins[color] - purchase.cost);
+    if (purchase.crownCard) {
+        // Buying a Crown Card: track it separately, add 1 crown
+        G.crownCards[color] = (G.crownCards[color]||0) + 1;
+        addCrown(color, 1);
+    }
     placements.forEach(p => {
         if (!G.board[p.territory]) return;
         if (p.type === 'castle') {
@@ -1159,6 +1239,13 @@ function applySpend(color, purchase, placements) {
 function applyNonCombatMove(mv) {
     if (!mv || !G.board[mv.from] || !G.board[mv.to]) return;
     const mu = mv.movingUnits || {};
+    const destOwner = G.board[mv.to].owner;
+    const destUnits = unitTotal(G.board[mv.to].units);
+    // Safety: if destination has enemy units, don't merge — this should have been queued as combat
+    if (destOwner !== mv.color && destOwner !== 'neutral' && destUnits > 0) {
+        addLog(`⚠ ${mv.color} tried to move into enemy ${mv.to} (${destOwner}) without combat — skipped. Check combat phase.`);
+        return;
+    }
     ['F','A','C','S'].forEach(k => {
         G.board[mv.from].units[k] = Math.max(0, (G.board[mv.from].units[k]||0) - (mu[k]||0));
     });
@@ -1188,10 +1275,20 @@ function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingC
 }
 
 
-function getBestSpend(coins) {
+function getBestSpend(coins, color) {
+    // Berlin shield: castles cost 3 fewer coins — simulate by adding 3 to purchasing power
+    // so the automa can access castle purchases it otherwise couldn't afford
+    const berlinBonus = (color && G.shields?.['Berlin'] === color && color !== S.playerColor) ? 3 : 0;
+    const effectiveCoins = coins + berlinBonus;
     const keys = Object.keys(SPEND_TABLE).map(Number).sort((a,b)=>b-a);
-    const k = keys.find(k => k <= coins);
-    return k ? { cost:k, items:SPEND_TABLE[k] } : { cost:5, items:SPEND_TABLE[5] };
+    const k = keys.find(k => k <= effectiveCoins);
+    const result = k ? { cost:k, items:SPEND_TABLE[k] } : { cost:5, items:SPEND_TABLE[5] };
+    // Adjust actual cost if a castle was in the purchase and Berlin discount applies
+    if (berlinBonus > 0 && result.items.includes('Castle')) {
+        result.cost = Math.max(result.cost - 3, 0);
+        result._berlinDiscount = true;
+    }
+    return result;
 }
 
 // ================================================================
@@ -1232,7 +1329,12 @@ function renderWelcome(el) {
         • For each automaton turn, this app reveals their card and shows a <b>numbered checklist</b> of exactly what to move.<br>
         • Tap each step as you carry it out on the board. When all steps are done, tap <b>Complete Turn</b>.<br>
         • The app handles turn order, coin tracking, and deck reshuffling automatically.</div>
-        <div class="info-box"><b>You win</b> by reaching 7 Crown tokens first — same as the base game.</div>
+        <div class="info-box"><b>You win</b> by reaching 7 Crown tokens first — same as the base game. Crown counts are tracked in the player bar.</div>
+        <div class="info-box" style="border-color:var(--gold);background:rgba(200,149,42,0.08);">
+            <b>⚠ Before you begin:</b><br>
+            • <b>Kingdom Missions variant is NOT used.</b> Crown Cards stay in the deck face-down — when purchased they give 1 Crown exactly as printed. Do NOT use the mission side.<br>
+            • All players start with <b>2 Crown tokens</b> (Rome starter gets 3 due to shield).
+        </div>
         <button class="btn-primary" onclick="wizNext()">BEGIN SETUP →</button>`;
 }
 
@@ -1415,6 +1517,106 @@ function renderReady(el) { launchGame(); }
 // ================================================================
 // GAME STATE & INIT
 // ================================================================
+
+// ── Gold City Shield Abilities ──────────────────────────────────
+// These are the special abilities granted by Tax-4 cities' shields
+// City Shield abilities — each starting city has a shield token with a special ability.
+// trigger: 'tax'|'spend'|'battle_win'|'expand'|'always'|'expand_spend'
+// crownBonus: extra crowns when captured (Rome only)
+const CITY_SHIELDS = {
+    "Paris":          { trigger:'tax',          crownBonus:0, reminder:"🛡 PARIS SHIELD: You taxed Paris — place 1 Cavalry + 1 Footman in Paris for FREE." },
+    "Stockholm":      { trigger:'battle_win',   crownBonus:0, reminder:"🛡 STOCKHOLM SHIELD: You won as attacker — collect 4 silver coins from the reserve." },
+    "Rome":           { trigger:'always',       crownBonus:1, reminder:"🛡 ROME SHIELD: Rome is worth 2 crowns (already applied)." },
+    "Berlin":         { trigger:'expand_spend', crownBonus:0, reminder:"🛡 BERLIN SHIELD: After Expanding, you may also Maneuver this action. Also: Castles cost 3 fewer coins." },
+    "Constantinople": { trigger:'spend',        crownBonus:0, reminder:"🛡 CONSTANTINOPLE SHIELD: You recruited a Siege Engine — place 4 Footmen with it for FREE." },
+    "Kiev":           { trigger:'spend',        crownBonus:0, reminder:"🛡 KIEV SHIELD: You may recruit army units into any non-city territory connected to Kiev by a supply line." },
+    "Madrid":         { trigger:'tax',          crownBonus:0, reminder:"🛡 MADRID SHIELD: You taxed Madrid — place 4 Footmen in Madrid for FREE." },
+    "London":         { trigger:'tax',          crownBonus:0, reminder:"🛡 LONDON SHIELD: You taxed London — place 2 Archers in London for FREE." },
+};
+
+function showShieldReminder(city, color) {
+    const sh = CITY_SHIELDS[city];
+    if (!sh || !sh.reminder) return;
+    if (!G.shields || G.shields[city] !== color) return;
+    if (color === S.playerColor) {
+        addLog(sh.reminder);
+        const toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#8b1a1a;color:white;padding:12px 18px;border-radius:8px;font-family:Cinzel,serif;font-size:0.82em;font-weight:700;z-index:500;max-width:340px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.6);';
+        toast.textContent = sh.reminder;
+        document.body.appendChild(toast);
+        setTimeout(()=>toast.remove(), 6000);
+    }
+    // Automa: no reminder needed — effect applied automatically by applyShieldBonus
+}
+
+// Apply city shield bonus automatically for an automa (no-op for human — they get a reminder instead)
+function applyShieldBonus(city, color, context) {
+    if (!G.shields || G.shields[city] !== color) return;
+    if (color === S.playerColor) return; // human handles manually via reminder
+    const sh = CITY_SHIELDS[city];
+    if (!sh) return;
+
+    if (city === 'Paris' && context === 'tax') {
+        // Free 1 Cavalry + 1 Footman in Paris
+        G.board['Paris'].units.C = (G.board['Paris'].units.C||0) + 1;
+        G.board['Paris'].units.F = (G.board['Paris'].units.F||0) + 1;
+        addLog(`🛡 Paris shield: ${cName(color)} receives 1 free Cavalry + 1 Footman in Paris.`);
+    } else if (city === 'Madrid' && context === 'tax') {
+        // Free 4 Footmen in Madrid
+        G.board['Madrid'].units.F = (G.board['Madrid'].units.F||0) + 4;
+        addLog(`🛡 Madrid shield: ${cName(color)} receives 4 free Footmen in Madrid.`);
+    } else if (city === 'London' && context === 'tax') {
+        // Free 2 Archers in London
+        G.board['London'].units.A = (G.board['London'].units.A||0) + 2;
+        addLog(`🛡 London shield: ${cName(color)} receives 2 free Archers in London.`);
+    } else if (city === 'Constantinople' && context === 'siege_buy') {
+        // Free 4 Footmen placed with the siege engine
+        // Find the territory where the siege engine was just placed
+        const siegeTerr = ownedBy(color).filter(n => G.board[n].units.S > 0)
+            .sort((a,b) => G.board[b].units.S - G.board[a].units.S)[0];
+        if (siegeTerr) {
+            G.board[siegeTerr].units.F = (G.board[siegeTerr].units.F||0) + 4;
+            addLog(`🛡 Constantinople shield: ${cName(color)} receives 4 free Footmen at ${siegeTerr}.`);
+        }
+    } else if (city === 'Kiev' && context === 'spend') {
+        // May recruit into non-city territory connected via supply line
+        // For automa: place 2 extra Footmen in the highest-unit non-city territory connected to Kiev
+        const kievOwner = G.board['Kiev']?.owner;
+        if (kievOwner !== color) return;
+        const visited = new Set(['Kiev']);
+        const queue = ['Kiev'];
+        let bestNonCity = null, bestCount = -1;
+        while (queue.length) {
+            const cur = queue.shift();
+            for (const adj of (T[cur]?.adj || [])) {
+                if (!visited.has(adj) && G.board[adj]?.owner === color) {
+                    visited.add(adj); queue.push(adj);
+                    if (T[adj].tax === 0) {
+                        const cnt = totalUnitCount(adj);
+                        if (cnt > bestCount) { bestCount = cnt; bestNonCity = adj; }
+                    }
+                }
+            }
+        }
+        if (bestNonCity) {
+            G.board[bestNonCity].units.F = (G.board[bestNonCity].units.F||0) + 2;
+            addLog(`🛡 Kiev shield: ${cName(color)} places 2 extra Footmen at ${bestNonCity} (supply line).`);
+        }
+    } else if (city === 'Stockholm' && context === 'battle_win') {
+        // 4 free coins
+        G.coins[color] = (G.coins[color]||0) + 4;
+        addLog(`🛡 Stockholm shield: ${cName(color)} collects 4 coins from the reserve.`);
+        render();
+    }
+    // Berlin: extra maneuver after expand — handled in generateSteps / advanceTurn
+    // Rome: crown bonus already handled in crownValueOfCity / applyBattleResult
+}
+
+function crownValueOfCity(name) {
+    // Rome is worth 2 crowns (1 regular + 1 bonus from shield)
+    return CITY_SHIELDS[name]?.crownBonus ? 1 + CITY_SHIELDS[name].crownBonus : (T[name]?.tax > 0 ? 1 : 0);
+}
+
 let G = {};
 
 function launchGame() {
@@ -1423,12 +1625,29 @@ function launchGame() {
     const seating = [fi, ...autos.filter(c=>c!==fi), S.playerColor];
     const coins = {};
     S.coinsData.forEach(d => { coins[d.color] = d.total; });
+    const crowns = {};
+    const shields = {}; // shields[cityName] = color that owns it
+    ['orange','green','purple','blue'].forEach(c => { crowns[c] = 2; }); // all start with 2 crowns
+    // Apply shield ownership and crown bonuses for starting capitals
+    const allCaps = { ...Object.fromEntries(autos.map(a=>[a, S.autoCapitals[a]?.name])), [S.playerColor]: S.playerCapital?.name };
+    Object.entries(allCaps).forEach(([c, cityName]) => {
+        if (cityName && CITY_SHIELDS[cityName]) {
+            shields[cityName] = c; // assign shield to starting owner
+            if (CITY_SHIELDS[cityName].crownBonus) {
+                crowns[c] += CITY_SHIELDS[cityName].crownBonus;
+            }
+        }
+    });
     G = {
         round:1, step:1, slot:0,
         firstPlayer:fi, pendingFirst:null,
-        seating, decks:{}, hand:{}, coins,
+        seating, decks:{}, hand:{}, coins, crowns, shields,
+        crownCards:   Object.fromEntries(seating.map(c=>[c,0])),  // purchased Crown Cards held
+        eliminated:   new Set(),   // colors permanently out of the game
+        savedByCrown: new Set(),   // colors on their one-round grace period
         revealed:false, pendingMoves:[], currentSteps:[], checkedSteps:new Set(),
         humanTurnChecks:new Set(), humanBoardUpdated:false,
+        roundCombats:[],
         logHistory:[]
     };
     autos.forEach(c => { G.decks[c]=[]; G.hand[c]=[]; });
@@ -1446,8 +1665,9 @@ function shuffle(arr) {
     for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
     return a;
 }
-function autoColors_g() { return G.seating.filter(c=>c!==S.playerColor); }
+function autoColors_g() { return G.seating.filter(c=>c!==S.playerColor && !(G.eliminated||new Set()).has(c)); }
 function cName(c) { return c===S.playerColor ? 'You' : c.charAt(0).toUpperCase()+c.slice(1); }
+function cAttacks(c) { return c===S.playerColor ? 'You attack' : cName(c)+' attacks'; }
 
 function refillDeck(c) { G.decks[c]=shuffle([...DECK_BASE]); addLog(`${cName(c)} deck reshuffled.`); }
 
@@ -1461,17 +1681,24 @@ function prepareRound(silent=false) {
         if(!silent) addLog(`${cName(fi)} is now First Player.`);
     }
     autoColors_g().forEach(c => {
-        if(G.decks[c].length < 2) refillDeck(c);
-        G.hand[c] = [G.decks[c].pop(), G.decks[c].pop()];
+        // Draw 2 cards — reshuffle mid-draw if deck runs out (don't discard remaining card)
+        const card1 = G.decks[c].length > 0 ? G.decks[c].pop() : (refillDeck(c), G.decks[c].pop());
+        if (G.decks[c].length === 0) refillDeck(c);
+        const card2 = G.decks[c].pop();
+        G.hand[c] = [card1, card2];
     });
     if(!silent) addLog(`Round ${G.round} — cards dealt.`);
 }
 
 function getTurnOrder() {
     const si = G.seating.indexOf(G.firstPlayer);
-    return [0,1,2,3].map(i=>G.seating[(si+i)%4]);
+    const all = [0,1,2,3].map(i=>G.seating[(si+i)%4]);
+    return all.filter(c => !(G.eliminated||new Set()).has(c));
 }
-function activeColor() { return getTurnOrder()[G.slot]; }
+function activeColor() {
+    const order = getTurnOrder();
+    return order[G.slot % order.length];
+}
 
 function addLog(msg) {
     G.logHistory.unshift(msg);
@@ -1485,6 +1712,139 @@ function addCoin(c, v) {
     G.coins[c] = Math.max(0, G.coins[c]+v);
     render();
     // Never regenerate steps mid-turn — steps are locked once revealed
+}
+
+// Remove all units from board for a color
+function eliminatePlayer(color) {
+    if (G.eliminated.has(color)) return;
+    G.eliminated.add(color);
+    G.savedByCrown.delete(color);
+    // Wipe all units and ownership
+    for (const name of Object.keys(G.board)) {
+        if (G.board[name].owner === color) {
+            G.board[name].owner = 'neutral';
+            G.board[name].units = {F:0,A:0,C:0,S:0};
+            // Castle stays — rule says return "City Bonus Tiles and coins", not castles explicitly;
+            // but to keep board clean, remove the castle too
+            G.board[name].castle = false;
+        }
+    }
+    // Return coins to reserve (just zero out)
+    G.coins[color] = 0;
+    // Crown Cards are removed from game (NOT returned to reserve) — remove them from crownCards
+    // but crowns from city captures stay removed (crowns are never returned)
+    const cards = G.crownCards[color] || 0;
+    if (cards > 0) {
+        G.crownCards[color] = 0;
+        // The crown tracker stays where it is — the banner just stays at that value, representing removed cards
+        addLog(`${cName(color)}'s ${cards} Crown Card${cards>1?'s':''} removed from game.`);
+    }
+    const isHuman = color === S.playerColor;
+    const who = isHuman ? 'YOU are' : cName(color) + ' is';
+    addLog(`💀 ${who} ELIMINATED — no cities and no crowns remaining.`);
+    if (isHuman) {
+        setTimeout(() => {
+            const el = document.getElementById('winner-overlay') || (() => {
+                const d = document.createElement('div'); d.id = 'winner-overlay';
+                d.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.88);';
+                document.body.appendChild(d); return d;
+            })();
+            el.innerHTML = `<div style="background:var(--parchment);border:4px solid #8b1a1a;border-radius:12px;
+                padding:36px 28px;max-width:360px;width:90%;text-align:center;">
+                <div style="font-size:3em;margin-bottom:8px;">💀</div>
+                <div style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;color:#8b1a1a;margin-bottom:8px;">YOU HAVE BEEN ELIMINATED</div>
+                <div style="font-size:0.9em;color:var(--ink-light);margin-bottom:24px;">No cities and no crowns remaining.</div>
+                <button onclick="confirmReset()" style="background:#8b1a1a;color:#fff;border:none;border-radius:8px;
+                    padding:13px 28px;font-family:Cinzel,serif;font-size:1em;font-weight:700;cursor:pointer;width:100%;">
+                    ↺ New Game
+                </button>
+            </div>`;
+            el.style.display = 'flex';
+        }, 200);
+    }
+    render();
+}
+
+// Check all players for elimination at end of round
+function checkElimination() {
+    const allColors = G.seating;
+    for (const c of allColors) {
+        if (G.eliminated.has(c)) continue;
+        const cities = ownedBy(c).filter(n => T[n].tax > 0);
+        if (cities.length > 0) {
+            // Has cities — safe. Clear any grace period.
+            if (G.savedByCrown.has(c)) {
+                G.savedByCrown.delete(c);
+                addLog(`${cName(c)} reclaimed a city — no longer on grace period.`);
+            }
+            continue;
+        }
+        // No cities
+        const crowns = G.crowns[c] || 0;
+        const cards  = G.crownCards[c] || 0;
+        if (G.savedByCrown.has(c)) {
+            // Already had grace period — now eliminate
+            eliminatePlayer(c);
+        } else if (crowns === 0) {
+            // No cities, no crowns — immediate elimination
+            eliminatePlayer(c);
+        } else if (cards > 0) {
+            // No cities but has Crown Card(s) — Saved by the Crown (one more round)
+            G.savedByCrown.add(c);
+            addLog(`🛡 SAVED BY THE CROWN: ${cName(c)} has no cities but holds ${cards} Crown Card${cards>1?'s':''}. One more round to reclaim a city!`);
+        } else {
+            // No cities, has crowns from captures but no crown cards — eliminate
+            // (Saved by the Crown specifically requires owning a Crown Card tile)
+            eliminatePlayer(c);
+        }
+    }
+}
+function checkWin(c) {
+    if (!G.crowns) return;
+    if ((G.crowns[c]||0) >= 7 && !G.winner) {
+        G.winner = c;
+        // Show winner banner — defer slightly so any current render finishes first
+        setTimeout(showWinnerScreen, 50);
+    }
+}
+
+function showWinnerScreen() {
+    const c = G.winner;
+    if (!c) return;
+    const isHuman = c === S.playerColor;
+    const hex = COLOR_HEX[c] || '#888';
+    const light = ['orange','green','blue'].includes(c);
+    const txt = light ? '#000' : '#fff';
+    const who = isHuman ? 'YOU WIN!' : cName(c).toUpperCase() + ' WINS!';
+    const sub = isHuman
+        ? `You reached ${G.crowns[c]} crowns. Congratulations!`
+        : `${cName(c)} reached ${G.crowns[c]} crowns.`;
+
+    // Overlay the entire screen
+    let el = document.getElementById('winner-overlay');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'winner-overlay';
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.88);';
+        document.body.appendChild(el);
+    }
+    el.innerHTML = `<div style="background:var(--parchment);border:4px solid ${hex};border-radius:12px;
+        padding:36px 28px;max-width:360px;width:90%;text-align:center;box-shadow:0 0 60px ${hex}88;">
+        <div style="font-size:3em;margin-bottom:8px;">👑</div>
+        <div style="font-family:Cinzel,serif;font-size:1.6em;font-weight:700;color:${hex};margin-bottom:8px;">${who}</div>
+        <div style="font-size:1em;color:var(--ink-light);margin-bottom:24px;">${sub}</div>
+        <button onclick="confirmReset()" style="background:${hex};color:${txt};border:none;border-radius:8px;
+            padding:13px 28px;font-family:Cinzel,serif;font-size:1em;font-weight:700;cursor:pointer;width:100%;">
+            ↺ New Game
+        </button>
+    </div>`;
+    el.style.display = 'flex';
+}
+function addCrown(c, v) {
+    if (!G.crowns) G.crowns = {};
+    G.crowns[c] = Math.max(0, (G.crowns[c]||0) + v);
+    checkWin(c);
+    render();
 }
 
 function setFirst(c) {
@@ -1505,6 +1865,7 @@ function toggleRef(id) {
 // REVEAL & STEPS
 // ================================================================
 function revealAction() {
+    if (G.winner) { showWinnerScreen(); return; }
     const color = activeColor();
     const card  = G.hand[color]?.[G.step-1];
     if(!card) { addLog('No card available.'); return; }
@@ -1559,6 +1920,11 @@ function toggleStep(i) {
             const delta = Number(effect);
             if(!wasChecked) {
                 G.coins[color] = Math.max(0, G.coins[color] + delta);
+                // Tax shield: fires when tax step is checked (delta > 0 = we just collected tax)
+                if (delta > 0) {
+                    const taxCity = G.pendingMoves?.find(m=>m.type==='tax')?.city;
+                    if (taxCity) applyShieldBonus(taxCity, color, 'tax');
+                }
             } else {
                 G.coins[color] = Math.max(0, G.coins[color] - delta);
             }
@@ -1629,9 +1995,22 @@ function generateSteps(card, color, coins) {
         const combatStep = expandDec.isEnemy
             ? renderCombatDialog(G.pendingMove)
             : null;
+        const hasBerlinShield = CITY_SHIELDS['Berlin']?.trigger === 'expand_spend' && G.shields?.['Berlin'] === color;
+        const berlinReminder = hasBerlinShield
+            ? `<div class="shield-reminder">${color === S.playerColor ? CITY_SHIELDS['Berlin'].reminder : '🛡 BERLIN SHIELD: ' + cName(color) + ' expands then also maneuvers (bonus action). Castles cost 3 fewer coins.'}</div>`
+            : null;
+        // Berlin automa: queue a bonus maneuver after the expand
+        if (hasBerlinShield && color !== S.playerColor) {
+            const bonusManeuver = decideManeuver(color);
+            if (bonusManeuver) {
+                const bmMoving = unitsToMove(bonusManeuver.from, bonusManeuver.movable, false);
+                G.pendingMoves.push({ type:'maneuver', color, from:bonusManeuver.from, to:bonusManeuver.to, movingUnits:bmMoving, _berlinBonus:true });
+            }
+        }
         EXPAND = [
             `<b>EXPAND:</b> ${moveDetail}.<br>${leaveDetail} (leave-behind rule: ${T[expandDec.from].tax>0?'Tax value '+T[expandDec.from].tax:'1 unit for non-urban'}).
              <span class="rule-note">Target: ${expandDec.to} (Tax ${expandDec.tax}${expandDec.isEnemy?', ENEMY: '+expandDec.defenders+' defenders':', '+(G.board[expandDec.to].owner==='neutral'?'neutral':'friendly')+'.'})${expandDec.hasCastle?' ⚠ Has castle — Siege Engine required.':''}</span>`,
+            ...(berlinReminder ? [berlinReminder] : []),
             ...(combatStep ? [combatStep] : []),
         ];
     } else if (posDec) {
@@ -1644,11 +2023,12 @@ function generateSteps(card, color, coins) {
             <span class="rule-note">Leave-behind: ${T[posDec.from].tax>0?'Tax value '+T[posDec.from].tax:1} unit${T[posDec.from].tax>1||T[posDec.from].tax===0?' s':''} at ${posDec.from}.</span>`,
         ];
     } else if (maneuverDec) {
-        G.pendingMove = { type:'maneuver', color, from:maneuverDec.from, to:maneuverDec.to };
-        G.pendingMoves.push(G.pendingMove);
         const moving = unitsToMove(maneuverDec.from, maneuverDec.movable, false);
+        G.pendingMove = { type:'maneuver', color, from:maneuverDec.from, to:maneuverDec.to, movingUnits:moving };
+        G.pendingMoves.push(G.pendingMove);
+        const hopsNote = maneuverDec.reason?.includes('2-step') ? ' (2-step move through own territory)' : '';
         EXPAND = [
-            `<b>MANEUVER:</b> Move <b>${unitStr(moving)}</b> from <b>${maneuverDec.from}</b> → <b>${maneuverDec.to}</b>.
+            `<b>MANEUVER:</b> Move <b>${unitStr(moving)}</b> from <b>${maneuverDec.from}</b> → <b>${maneuverDec.to}</b>${hopsNote}.
             <span class="rule-note">${maneuverDec.reason}</span>`,
         ];
     } else {
@@ -1660,6 +2040,36 @@ function generateSteps(card, color, coins) {
     }
 
     if (card === "TAX OR SPEND") {
+        // Saved by the Crown restriction: no cities → cannot tax; can spend only if has castle
+        const _hasCities  = ownedBy(color).filter(n => T[n].tax > 0).length > 0;
+        const _hasCastle  = ownedBy(color).some(n => G.board[n].castle);
+        const _savedGrace = G.savedByCrown?.has(color) && !_hasCities;
+        if (_savedGrace && !_hasCastle) {
+            steps.push(`<b>NO ACTION — SAVED BY THE CROWN:</b> ${C} has no cities and no castle. Cannot tax or spend. ✓ Skip this action.`);
+            return steps;
+        }
+        if (_savedGrace) {
+            steps.push(`<div class="shield-reminder">⚠ SAVED BY THE CROWN: ${C} has no cities — cannot tax. May spend only because ${C} controls a castle.</div>`);
+            // Force spend regardless of coin count
+            const { cost, items } = getBestSpend(coins, color);
+            const hasCastle2 = items.includes("Castle");
+            const hasSiege2  = items.includes("Siege Engine");
+            const purchase2  = { cost, items,
+                F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
+                A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
+                C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
+                S:hasSiege2?1:0, castle:hasCastle2 };
+            const placements2 = decideSpendPlacements(color, purchase2);
+            G.pendingMove = { type:'spend', color, purchase:purchase2, placements:placements2 };
+            G.pendingMoves.push(G.pendingMove);
+            G._stepCoinEffects[0] = -cost;
+            if (coins < cost) {
+                steps.push(`<b>INSUFFICIENT COINS</b> — ${C} cannot afford any purchase. ✓ Skip.`);
+            } else {
+                steps.push(`<b>MODE: SPEND (castle only)</b> — Purchase: <span class="buy-highlight">${items}</span> Cost: <b>${cost} coins.</b>`);
+            }
+            return steps;
+        }
         if (coins <= 4) {
             const taxDec = decideTax(color);
             const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
@@ -1671,8 +2081,12 @@ function generateSteps(card, color, coins) {
             G._stepCoinEffects[1] = taxAmt;
             steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check this step to automatically add ${taxAmt} coins to ${C}'s total.
                 <span class="rule-note">Yield = city's own Tax value + 1 per connected non-urban territory + Tax value of connected cities ${C} owns (all connected through ${C}'s own supply line).</span>`);
+            // Shield reminders for tax-trigger cities
+            if (CITY_SHIELDS[taxCity]?.trigger === 'tax' && G.shields?.[taxCity] === color) {
+                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[taxCity].reminder}</div>`);
+            }
         } else {
-            const { cost, items } = getBestSpend(coins);
+            const { cost, items } = getBestSpend(coins, color);
             const hasCastle = items.includes("Castle");
             const hasSiege  = items.includes("Siege Engine");
             // Parse purchase into unit counts
@@ -1688,6 +2102,8 @@ function generateSteps(card, color, coins) {
             G.pendingMoves.push(G.pendingMove);
             // Register coin effect: checking step 0 deducts cost coins
             G._stepCoinEffects[0] = -cost;
+            // Track crown card flag on purchase
+            if (purchase.crownCard) G._pendingCrownCard = color;
             steps.push(`<b>MODE: SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase:<span class="buy-highlight">${items}</span>Cost: <b>${cost} coins.</b> ✓ Check this step to automatically deduct the cost.
                 <span class="rule-note">If a figure type runs out: substitute 2 Footmen ↔ 1 Archer. Never buy Crown Cards unless no Castles remain in supply.</span>`);
             placements.forEach((p,i) => {
@@ -1696,11 +2112,18 @@ function generateSteps(card, color, coins) {
                     steps.push(`<b>Place Castle</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
                 } else if (p.type === 'siege') {
                     steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest territory to an enemy castle.`);
+                    if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color) {
+                        steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`);
+                    }
                 } else {
                     const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
                     steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
                 }
             });
+            // Kiev shield — remind player they can place in non-city supply territories
+            if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color) {
+                steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`);
+            }
         }
         return steps;
     }
@@ -1743,8 +2166,10 @@ function generateSteps(card, color, coins) {
     if (card === "SIEGE ASSAULT / EXPAND OR MANEUVER") {
         const siegeDec = decideSiege(color);
         if (siegeDec) {
+            const siegeMovable = movableCount(siegeDec.from, color);
+            const siegeMovingUnits = unitsToMove(siegeDec.from, siegeMovable, true); // true = keep siege engine
             G.pendingMove = { type:'expand', color, from:siegeDec.from, to:siegeDec.to,
-                movingUnits: G.board[siegeDec.from].units, movable: totalUnitCount(siegeDec.from), isEnemy:true };
+                movingUnits: siegeMovingUnits, movable: siegeMovable, isEnemy:true };
             G.pendingMoves.push(G.pendingMove);
             steps.push(`<b>SIEGE ASSAULT:</b> Attack <b>${siegeDec.to}</b> from <b>${siegeDec.from}</b> (${siegeDec.defenders} defenders, owned by ${siegeDec.defOwner}).`);
             steps.push(`<b>Resolve siege combat</b> (Siege Engine fires first per base game rules).`);
@@ -1797,11 +2222,17 @@ function skipCombatStep() {}       // deprecated
 // ADVANCE TURN
 // ================================================================
 function advanceTurn() {
+    if (G.winner) return; // game over — don't advance
     // Apply all pending board changes for this turn in order
     for (const mv of (G.pendingMoves || [])) {
         if (!mv || mv.type === 'tax' || mv.type === 'none' || mv._applied) continue;
         if (mv.type === 'spend') {
             applySpend(mv.color, mv.purchase, mv.placements||[]);
+            // Constantinople shield: fires if a Siege Engine was purchased
+            if (mv.purchase?.S > 0) applyShieldBonus('Constantinople', mv.color, 'siege_buy');
+            // Kiev shield: fires on any spend
+            applyShieldBonus('Kiev', mv.color, 'spend');
+            // Berlin shield (castle cost reduction) already baked into spend table; extra maneuver handled in generateSteps
         } else if (mv.type === 'fortify') {
             applyFortify(mv.territory, mv.count);
         } else if (mv.type === 'expand' || mv.type === 'position' || mv.type === 'maneuver') {
@@ -1829,12 +2260,15 @@ function advanceTurn() {
             G.step = 2;
             addLog('— All players finished Action 1. Now Action 2. —');
         } else {
-            G.step = 1; G.round++;
-            // Launch Combat Phase before starting next round
+            G.step = 1;
+            // Launch Combat Phase for the round that just ended, THEN increment
             if (G.roundCombats && G.roundCombats.length > 0) {
-                openCombatPhase();
+                openCombatPhase(G.round);   // pass current round before incrementing
+                G.round++;
             } else {
-                prepareRound(false);
+                G.round++;
+                checkElimination();
+                if (!G.winner) prepareRound(false);
             }
         }
     }
@@ -1844,6 +2278,8 @@ function advanceTurn() {
 
 function confirmReset() {
     if(!confirm('Reset entire game and return to setup?')) return;
+    const wo = document.getElementById('winner-overlay');
+    if (wo) wo.style.display = 'none';
     G = {};
     Object.assign(S, { step:0, playerColor:null, firstAuto:null, autoCapitals:{}, playerCapital:null,
                        autoSecondary:{}, playerSecondary:null, takenAdj:new Set(), shuffledCaps:[], coinsData:[] });
@@ -1866,7 +2302,9 @@ function render() {
         const isPending = c===G.pendingFirst;
         const isHuman   = c===S.playerColor;
         const tile      = document.createElement('div');
-        tile.className  = `player-tile ${isActive?'active':''} ${isFirst?'is-first':''} ${isPending?'is-pending':''}`;
+        const isSaved = G.savedByCrown?.has(c);
+        const isElim  = G.eliminated?.has(c);
+        tile.className  = `player-tile ${isActive?'active':''} ${isFirst?'is-first':''} ${isPending?'is-pending':''} ${isSaved?'is-saved':''} ${isElim?'is-eliminated':''}`;
         tile.style.background = `var(--p-${c})`;
         // Light backgrounds need dark text
         const lightColors = ['blue', 'green', 'orange'];
@@ -1878,11 +2316,16 @@ function render() {
             ? '<span class="coin-threshold mode-tax">TAX</span>'
             : '<span class="coin-threshold mode-spend">SPEND</span>';
         tile.innerHTML = `
-            <div class="p-name"><span class="crown-badge" onclick="setFirst('${c}')" title="KING ME: set as next First Player">👑</span>${c.toUpperCase()}</div>
+            <div class="p-name"><span class="crown-badge" onclick="setFirst('${c}')" title="KING ME: set as next First Player">🪙</span>${c.toUpperCase()}${G.savedByCrown?.has(c)?' <span title="Saved by the Crown — must reclaim a city this round" style="font-size:0.75em;color:#b8860b;">⚠ GRACE</span>':''}${G.eliminated?.has(c)?' <span style="font-size:0.75em;color:#8b1a1a;">💀</span>':''}</div>
             <div class="coin-row">
                 <button class="coin-btn" onclick="addCoin('${c}',-1)">−</button>
                 <span class="coin-count">${G.coins[c]}</span>
                 <button class="coin-btn" onclick="addCoin('${c}',+1)">+</button>
+            </div>
+            <div class="coin-row" style="margin-top:2px;">
+                ${isHuman ? `<button class="coin-btn" onclick="addCrown('${c}',-1)">−</button>` : '<span style="width:18px"></span>'}
+                <span title="Crowns" style="font-size:0.75em;letter-spacing:0.02em;">👑${G.crowns[c]||0}</span>
+                ${isHuman ? `<button class="coin-btn" onclick="addCrown('${c}',+1)">+</button>` : '<span style="width:18px"></span>'}
             </div>
             ${isHuman ? `<span style="font-size:0.58em;color:${subTextColor};">YOU</span>` : mode}
             <div class="deck-pip">${used}</div>`;
@@ -1973,6 +2416,48 @@ function renderBoardEditor() {
     if (BE.step === 'list') renderBEList(bs, color);
     else if (BE.step === 'move') renderBEMove(bs, color);
     else if (BE.step === 'full') renderBEFull(bs);
+}
+
+
+// ── Supply Line Movement ─────────────────────────────────────────
+// Returns all territories reachable through a chain of own territories
+// (and one step beyond into enemy/neutral for attack/settle)
+// depth: how many hops through own territory are allowed (MANEUVER = unlimited chain)
+function getSupplyLineTerritories(fromName, color, includeEnemy=true) {
+    const visited = new Set([fromName]);
+    const ownChain = new Set([fromName]); // territories in own supply line
+    const queue = [fromName];
+    // BFS through own territories to find full supply line
+    while (queue.length) {
+        const cur = queue.shift();
+        for (const adj of (T[cur]?.adj || [])) {
+            if (!visited.has(adj) && G.board[adj]?.owner === color) {
+                visited.add(adj);
+                ownChain.add(adj);
+                queue.push(adj);
+            }
+        }
+    }
+    // Now find all territories adjacent to any node in ownChain that are not own
+    const destinations = new Map(); // name -> {type, hops}
+    for (const own of ownChain) {
+        for (const adj of (T[own]?.adj || [])) {
+            if (ownChain.has(adj)) continue; // already own
+            if (!T[adj]) continue;
+            const owner = G.board[adj]?.owner || 'neutral';
+            if (!destinations.has(adj) || true) {
+                destinations.set(adj, { name: adj, via: own, type: owner === 'neutral' ? 'neutral' : owner === color ? 'own' : 'enemy' });
+            }
+        }
+    }
+    // Also include own chain members that are not the source (for repositioning)
+    for (const own of ownChain) {
+        if (own === fromName) continue;
+        if (!destinations.has(own)) {
+            destinations.set(own, { name: own, via: own, type: 'friendly' });
+        }
+    }
+    return Array.from(destinations.values());
 }
 
 // ── STEP 1: territory list ────────────────────────────────────────
@@ -2180,8 +2665,12 @@ function renderBEFull(bs) {
                 const castle = b.castle ? ' 🏰' : '';
                 const units = unitStr(b.units);
                 const total = unitTotal(b.units);
+                const pendingBattle = (G.roundCombats||[]).find(b => b.to === name && !b._resolved);
+                const pendingTag = pendingBattle
+                    ? `<span style="color:#8b1a1a;font-size:0.75em;font-weight:700;margin-left:4px;">⚔ ${pendingBattle.color} attacking</span>`
+                    : '';
                 return `<div class="fbs-row" onclick="openTerrEdit('${name.replace(/'/g,"\\'")}')" style="cursor:pointer;" title="Click to edit">
-                    <div class="fr-name" style="color:var(--accent);text-decoration:underline dotted;">${name}${castle}</div>
+                    <div class="fr-name" style="color:var(--accent);text-decoration:underline dotted;">${name}${castle}${pendingTag}</div>
                     <div class="fr-sub">${tax}</div>
                     <div class="fr-units">${units} <span style="color:var(--ink-light)">(${total})</span></div>
                 </div>`;
@@ -2240,34 +2729,63 @@ function beConfirmMove() {
     const count = (mu.F||0)+(mu.A||0)+(mu.C||0)+(mu.S||0);
     if (count <= 0) return;
 
-    // Subtract moved units from source
-    for (const k of ['F','A','C','S']) {
-        G.board[from].units[k] = Math.max(0, (G.board[from].units[k]||0) - (mu[k]||0));
-    }
-    // Add to destination
-    for (const k of ['F','A','C','S']) {
-        G.board[to].units[k] = (G.board[to].units[k]||0) + (mu[k]||0);
-    }
-    // Claim neutral territory
-    if (G.board[to].owner === 'neutral') G.board[to].owner = BE.color;
+    const destOwner    = G.board[to].owner;
+    const destUnitCnt  = unitTotal(G.board[to].units);
+    const isEnemy      = destOwner !== BE.color && destOwner !== 'neutral' && destUnitCnt > 0;
 
-    // Describe what moved
     const desc = ['C','A','F','S']
         .filter(k=>(mu[k]||0)>0)
         .map(k=>mu[k]+({C:'Cav',A:'Arc',F:'Ft',S:'Sie'}[k]))
         .join('+');
-    addLog(`Board: ${BE.color} moves ${desc} from ${from} → ${to}.`);
 
-    // Mark territory as moved-from this session
+    if (isEnemy) {
+        // ── ENEMY TERRITORY: queue battle exactly like automaton moves ──
+        // Units stay at origin until Combat Phase resolves the fight.
+        // roundCombats stores movingUnits so resolveAutoBattle / csFinalize
+        // knows exactly which units are committed to the attack.
+        if (!G.roundCombats) G.roundCombats = [];
+        const already = G.roundCombats.some(c => c.from===from && c.to===to && c.color===BE.color);
+        if (!already) {
+            G.roundCombats.push({
+                color: BE.color,
+                from,
+                to,
+                movingUnits: { ...mu },
+                movable: count,
+                isEnemy: true,
+                _fromEditor: true
+            });
+        }
+        addLog(`⚔ Battle queued: ${BE.color} will attack ${to} (${destOwner}) with ${desc} from ${from} — resolve in Combat Phase.`);
+    } else {
+        // ── FRIENDLY / NEUTRAL MOVE: apply immediately ──
+        for (const k of ['F','A','C','S']) {
+            G.board[from].units[k] = Math.max(0, (G.board[from].units[k]||0) - (mu[k]||0));
+        }
+        for (const k of ['F','A','C','S']) {
+            G.board[to].units[k] = (G.board[to].units[k]||0) + (mu[k]||0);
+        }
+        if (G.board[to].owner === 'neutral') G.board[to].owner = BE.color;
+        addLog(`Board: ${BE.color} moves ${desc} from ${from} → ${to}.`);
+    }
+
     if (!BE.movedFrom) BE.movedFrom = new Set();
     BE.movedFrom.add(from);
-
     BE.step = 'list'; BE.fromTerr = null; BE.destTerr = null; BE.moveUnits = {F:0,A:0,C:0,S:0};
     renderBoardEditor();
 }
 
 function beSetOwner(name, color) {
-    if (G.board[name]) { G.board[name].owner = color; renderBoardEditor(); }
+    // Inline owner correction — same as edit modal, direct update
+    if (!G.board[name]) return;
+    G.board[name].owner = color;
+    if (color === 'neutral') G.board[name].units = {F:0,A:0,C:0,S:0};
+    if (CITY_SHIELDS[name]) {
+        if (!G.shields) G.shields = {};
+        if (color !== 'neutral') G.shields[name] = color;
+        else delete G.shields[name];
+    }
+    renderBoardEditor();
 }
 function beToggleCastle(name) {
     if (G.board[name]) { G.board[name].castle = !G.board[name].castle; renderBoardEditor(); }
@@ -2307,9 +2825,9 @@ function csStr(u){
     return p.length?p.join('+'):'0';
 }
 function csDice(u,phase){
-    if(phase==='siege')  return (u.S||0)*2;
-    if(phase==='archer') return (u.A||0);
-    if(phase==='main')   return (u.C||0)*2+(u.F||0);
+    if(phase==='siege')  return (u.S||0)*2;           // 2 dice per siege engine (attacker only, vs castle)
+    if(phase==='archer') return (u.A||0);              // 1 die per archer
+    if(phase==='main')   return (u.C||0)*2+(u.F||0)+(u.A||0)+(u.S||0); // Cav=2, all others=1
     return 0;
 }
 function csRollN(n){ return Array.from({length:n},()=>{ const v=Math.floor(Math.random()*6)+1; return {v,hit:v>=4,f:DFACES[v-1]}; }); }
@@ -2342,7 +2860,6 @@ function tileStyle(color){
 function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
     if(!G.board[fromTerr]||!G.board[toTerr]){
         console.warn('openCombat: territory not found in board state', fromTerr, toTerr);
-        // Mark step done anyway so player isn't stuck
         if(stepIdx >= 0) G.checkedSteps.add(stepIdx);
         const total = G.currentSteps.filter(s=>s!==null).length;
         document.getElementById('complete-btn').disabled = (G.checkedSteps.size < total);
@@ -2353,7 +2870,14 @@ function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
     CS.active=true;
     CS.attackerColor=attackerColor; CS.defenderColor=defenderColor;
     CS.fromTerr=fromTerr; CS.toTerr=toTerr;
-    CS.attUnits={...G.board[fromTerr].units};
+    // '__editor__' battles: attacker units come from the roundCombats entry, not a territory
+    if (fromTerr === '__editor__') {
+        const entry = (G.roundCombats||[]).find(b => b._fromEditor && b.to===toTerr && b.color===attackerColor && !b._resolved);
+        CS.attUnits = entry?.movingUnits ? {...entry.movingUnits} : {F:1,A:0,C:0,S:0};
+        CS._fromEditor = true;
+    } else {
+        CS.attUnits={...G.board[fromTerr].units};
+    }
     CS.defUnits={...G.board[toTerr].units};
     CS.humanAtt=(attackerColor===S.playerColor);
     CS.humanDef=(defenderColor===S.playerColor);
@@ -2655,10 +3179,12 @@ function renderResult(){
 function csFinalize(attackerWon, finalAtt, finalDef){
     const from=CS.fromTerr, to=CS.toTerr;
     if(!G.board[from]||!G.board[to]) return;
-    // Leave-behind at origin
-    const isHumanCombat = CS.humanAtt || CS.humanDef;
-    const leaveN = isHumanCombat ? leaveBehindPlayer(from) : leaveBehindCount(from);
-    G.board[from].units=unitsToLeave(from,leaveN);
+
+    // Normal path
+    if (from !== '__editor__') {
+        const leaveN = leaveBehindCount(from);
+        G.board[from].units=unitsToLeave(from,leaveN);
+    }
     if(attackerWon){
         G.board[to].owner=CS.attackerColor;
         G.board[to].units={F:finalAtt.F||0,A:finalAtt.A||0,C:finalAtt.C||0,S:finalAtt.S||0};
@@ -2671,7 +3197,6 @@ function csFinalize(attackerWon, finalAtt, finalDef){
             G.board[from].units.S=(G.board[from].units.S||0)+(finalAtt.S||0);
         }
     }
-    // Mark moves as applied
     for(const mv of G.pendingMoves||[]){
         if(mv&&mv.from===from&&mv.to===to) mv._applied=true;
     }
@@ -2680,11 +3205,48 @@ function csFinalize(attackerWon, finalAtt, finalDef){
 
 function closeCombat(){
     document.getElementById('combat-overlay').classList.remove('open');
-    // Tick off the combat step — try pendingStepIdx first, fall back to searching
+
+    // If we came from the Combat Phase, mark battle resolved and re-render CP
+    if (CP.returnToCombatPhase) {
+        CP.returnToCombatPhase = false;
+        const idx = CP.activeBattleIdx;
+        const b = G.roundCombats[idx];
+        if (b) {
+            const attackerWon = csTotal(CS.attUnits) > 0 && csTotal(CS.defUnits) === 0 && !CS.retreated;
+            const defHeld     = CS.retreated || csTotal(CS.defUnits) > 0;
+            b._resolved = true;
+            b._result   = attackerWon ? 'Attacker won' : defHeld ? 'Defender held' : 'Both eliminated';
+            b._log      = CS.log.join('<br>');
+            // Award crowns + shield if attacker captured a city
+            if (attackerWon) {
+                const defColor = G.board[b.to]?.owner; // already updated by csFinalize
+                const cv = crownValueOfCity(b.to);
+                if (cv > 0) {
+                    if (!G.crowns) G.crowns = {};
+                    G.crowns[b.color] = (G.crowns[b.color]||0) + cv;
+                    addLog(`${cName(b.color)} captures ${b.to}. +${cv} Crown${cv>1?'s':''}! (${G.crowns[b.color]} total)`);
+                    checkWin(b.color);
+                }
+                if (CITY_SHIELDS[b.to]) {
+                    if (!G.shields) G.shields = {};
+                    G.shields[b.to] = b.color;
+                    addLog('🛡 ' + cName(b.color) + ' gains the ' + b.to + ' shield.');
+                    showShieldReminder(b.to, b.color);
+                }
+                showShieldReminder('Stockholm', b.color);
+                applyShieldBonus('Stockholm', b.color, 'battle_win');
+            }
+        }
+        CP.idx = (idx || 0) + 1;
+        csReset();
+        renderCombatPhase();
+        return;
+    }
+
+    // Normal in-turn combat close
     let stepIdx = CS.pendingStepIdx;
     if (stepIdx < 0) stepIdx = findStepIdxContaining('START COMBAT');
     if (stepIdx >= 0) G.checkedSteps.add(stepIdx);
-    // Always recheck and potentially unlock — never leave permanently stuck
     const total = G.currentSteps.filter(s=>s!==null).length;
     const _cb2 = document.getElementById('complete-btn');
     if(_cb2) _cb2.disabled = (G.checkedSteps.size < total);
@@ -2699,7 +3261,7 @@ function closeCombat(){
 // ================================================================
 const HUMAN_STEPS = [
     { id:'card',   text:'<b>Flip your pre-set Order Card face-up</b> and resolve it. You must play your cards in the order you placed them face-down at the start of this round.' },
-    { id:'move',   text:'<b>Move your units</b> according to your card. Remember leave-behind rules: non-urban = 1 unit, city = Tax value in units.' },
+    { id:'move',   text:'<b>Move your units</b> according to your card. Leave-behind: <b>non-urban = 1 unit, city = its Tax value in units</b>. <b>MANEUVER</b>: up to 2 territories away through your own territories to an owned or disputed territory. Cannot maneuver out of a disputed territory.' },
     { id:'board',  text:'<b>Update the board state</b> — open the editor and record territory changes. If you made no moves this action, tap to skip.' },
     { id:'crowns', text:'<b>Collect Tax / claim Crowns</b> if applicable. Use the coin [+] / [−] buttons in the player bar to adjust your total.' },
 ];
@@ -2808,21 +3370,41 @@ function forceAdvance() {
 // ================================================================
 // TERRITORY EDIT MODAL
 // ================================================================
-let TE = { name:null }; // working copy lives directly on G.board during edit
+// TE = Territory Edit state
+// TE.name        — territory being edited
+// TE.attColor    — a second (attacking) color the user is setting up, or null
+// TE.attUnits    — that attacker's units {F,A,C,S} — lives only in TE, NOT on G.board
+let TE = { name:null, attColor:null, attUnits:{F:0,A:0,C:0,S:0} };
 
 function openTerrEdit(name) {
     if (!G.board[name]) return;
-    TE.name = name;
+    TE = { name, attColor:null, attUnits:{F:0,A:0,C:0,S:0} };
     document.getElementById('terr-edit-overlay').classList.add('open');
     renderTerrEdit();
 }
 
 function closeTerrEdit() {
+    // If a second (attacking) army was set up, queue it as a pending battle
+    if (TE.attColor && unitTotal(TE.attUnits) > 0) {
+        if (!G.roundCombats) G.roundCombats = [];
+        // Remove any previous editor-queued battle for the same territory + attacker
+        G.roundCombats = G.roundCombats.filter(
+            b => !(b._fromEditor && b.to === TE.name && b.color === TE.attColor)
+        );
+        G.roundCombats.push({
+            color:       TE.attColor,
+            from:        '__editor__',   // sentinel: no origin territory
+            to:          TE.name,
+            movingUnits: { ...TE.attUnits },
+            movable:     unitTotal(TE.attUnits),
+            isEnemy:     true,
+            _fromEditor: true
+        });
+        addLog(`⚔ Battle queued: ${cAttacks(TE.attColor)} ${TE.name} (${G.board[TE.name]?.owner}) — resolve in Combat Phase.`);
+    }
     document.getElementById('terr-edit-overlay').classList.remove('open');
-    TE.name = null;
-    // Refresh the full board view to show changes
-    const bs = G.board;
-    renderBEFull(bs);
+    TE = { name:null, attColor:null, attUnits:{F:0,A:0,C:0,S:0} };
+    renderBEFull(G.board);
 }
 
 function renderTerrEdit() {
@@ -2833,94 +3415,164 @@ function renderTerrEdit() {
     const tax = T[name]?.tax > 0 ? `Tax ${T[name].tax} city` : 'Non-urban territory';
     document.getElementById('terr-edit-title').textContent = name;
 
+    const defColor  = b.owner;
+    const hasAtt    = !!TE.attColor;
+
+    // ── Color selector ──────────────────────────────────────────────
+    // Clicking the defender's color = remove attacker (back to single-army view)
+    // Clicking a different color    = set as attacker
+    // Clicking Neutral              = clear the territory
     const allColors = ['orange','green','purple','blue','neutral'];
     const ownerBtns = allColors.map(c => {
-        const bg = COLOR_HEX[c] || '#aaa';
+        const bg  = COLOR_HEX[c] || '#aaa';
         const txt = ['orange','green','blue'].includes(c) ? '#000' : '#fff';
-        const sel = b.owner === c ? 'sel' : '';
-        return `<button class="te-owner-btn ${sel}"
-            style="background:${bg};color:${txt}"
-            onclick="teSetOwner('${c}')">${c === 'neutral' ? 'Neutral' : c.charAt(0).toUpperCase()+c.slice(1)}${c===S.playerColor?' (You)':''}</button>`;
+        // Highlight: defender color highlighted if no attacker, attacker color if attacker set
+        const isSel = hasAtt ? (c === TE.attColor) : (c === defColor);
+        const sel = isSel ? 'sel' : '';
+        const label = c === 'neutral' ? 'Neutral'
+            : c.charAt(0).toUpperCase()+c.slice(1) + (c===S.playerColor?' (You)':'');
+        return `<button class="te-owner-btn ${sel}" style="background:${bg};color:${txt}"
+            onclick="teSetOwner('${c}')">${label}</button>`;
     }).join('');
 
+    // ── Unit rows helper ────────────────────────────────────────────
     const unitDefs = [
-        { k:'F', label:'Footman',     sub:'1 die in combat' },
-        { k:'A', label:'Archer',      sub:'1 die pre-battle' },
-        { k:'C', label:'Cavalry',     sub:'2 dice in combat' },
-        { k:'S', label:'Siege Engine',sub:'Required for castles' },
+        { k:'F', label:'Footman',      sub:'1 die' },
+        { k:'A', label:'Archer',       sub:'1 die' },
+        { k:'C', label:'Cavalry',      sub:'2 dice' },
+        { k:'S', label:'Siege Engine', sub:'Pre-battle' },
     ];
-    const unitRows = unitDefs.map(({k, label, sub}) => {
-        const v = b.units[k] || 0;
-        return `<div class="te-unit-row">
-            <div>
-                <div class="te-unit-label">${label}</div>
-                <div class="te-unit-sub">${sub}</div>
-            </div>
-            <div class="te-stepper">
-                <button class="te-btn" onclick="teAdjUnit('${k}',-1)">−</button>
-                <span class="te-val" id="te-${k}">${v}</span>
-                <button class="te-btn" onclick="teAdjUnit('${k}',1)">+</button>
-            </div>
-        </div>`;
-    }).join('');
+    function makeUnitRows(units, idPrefix, onAdj) {
+        return unitDefs.map(({k, label, sub}) => {
+            const v = units[k] || 0;
+            return `<div class="te-unit-row">
+                <div><div class="te-unit-label">${label}</div><div class="te-unit-sub">${sub}</div></div>
+                <div class="te-stepper">
+                    <button class="te-btn" onclick="${onAdj}('${k}',-1)">−</button>
+                    <span class="te-val" id="${idPrefix}${k}">${v}</span>
+                    <button class="te-btn" onclick="${onAdj}('${k}',1)">+</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
 
-    const total = unitTotal(b.units);
+    // ── Defender panel ──────────────────────────────────────────────
+    const defHex   = COLOR_HEX[defColor] || '#aaa';
+    const defLight = ['orange','green','blue'].includes(defColor);
+    const defTxt   = defLight ? '#000' : '#fff';
+    const defTotal = unitTotal(b.units);
+    const defPanel = `
+        <div class="te-section" style="border:2px solid ${defHex};border-radius:7px;margin-bottom:10px;">
+            <div style="background:${defHex};color:${defTxt};padding:5px 10px;border-radius:5px 5px 0 0;
+                font-family:Cinzel,serif;font-size:0.82em;font-weight:700;margin-bottom:6px;">
+                ${hasAtt ? 'DEFENDER — ' : ''}${defColor.toUpperCase()}${defColor===S.playerColor?' (YOU)':''}&nbsp;
+                <span style="font-weight:400">(${defTotal} units)</span>
+            </div>
+            <div style="padding:0 4px;">${makeUnitRows(b.units,'te-def-','teAdjDef')}</div>
+        </div>`;
+
+    // ── Attacker panel (only when a second color is selected) ───────
+    let attPanel = '';
+    if (hasAtt) {
+        const attHex   = COLOR_HEX[TE.attColor] || '#aaa';
+        const attLight = ['orange','green','blue'].includes(TE.attColor);
+        const attTxt   = attLight ? '#000' : '#fff';
+        const attTotal = unitTotal(TE.attUnits);
+        attPanel = `
+        <div class="te-section" style="border:2px solid ${attHex};border-radius:7px;margin-bottom:10px;">
+            <div style="background:${attHex};color:${attTxt};padding:5px 10px;border-radius:5px 5px 0 0;
+                font-family:Cinzel,serif;font-size:0.82em;font-weight:700;margin-bottom:6px;">
+                ATTACKER — ${TE.attColor.toUpperCase()}${TE.attColor===S.playerColor?' (YOU)':''}
+                &nbsp;<span style="font-weight:400" id="te-att-total">(${attTotal} units)</span>
+            </div>
+            <div style="padding:0 4px;">${makeUnitRows(TE.attUnits,'te-att-','teAdjAtt')}</div>
+        </div>
+        <div style="font-size:0.78em;color:var(--ink-light);margin-bottom:8px;padding:0 2px;">
+            ⚔ Battle will be queued for the Combat Phase when you save.
+        </div>`;
+    }
+
+    // ── Castle ──────────────────────────────────────────────────────
     const castleCls = b.castle ? 'te-castle-toggle on' : 'te-castle-toggle';
     const castleLbl = b.castle ? '🏰 Remove Castle' : '+ Add Castle';
-    const castleNote = T[name]?.tax > 0 ? '' : '<div style="font-size:0.75em;color:var(--ink-light);margin-top:4px;">Note: only cities can normally have castles.</div>';
+    const castleNote = T[name]?.tax > 0 ? '' : '<div style="font-size:0.75em;color:var(--ink-light);margin-top:4px;">Note: only cities normally have castles.</div>';
 
     document.getElementById('terr-edit-body').innerHTML = `
         <div class="te-section">
-            <div class="te-label">Territory</div>
-            <div style="font-family:Cinzel,serif;font-size:1em;font-weight:700;color:var(--ink);">${name}</div>
-            <div style="font-size:0.8em;color:var(--ink-light);">${tax}</div>
+            <div class="te-label">Territory: <b>${name}</b> &nbsp;<span style="font-size:0.8em;color:var(--ink-light);">${tax}</span></div>
         </div>
         <div class="te-section">
-            <div class="te-label">Owner</div>
+            <div class="te-label">${hasAtt ? 'Click a colour to set attacker / defender' : 'Owner — click another colour to add an attacker'}</div>
             <div class="te-owner-row">${ownerBtns}</div>
         </div>
+        ${defPanel}
+        ${attPanel}
         <div class="te-section">
-            <div class="te-label">Units &nbsp;<span class="te-total-badge" id="te-total">(${total} total)</span></div>
-            <div class="te-units-grid">${unitRows}</div>
-        </div>
-        <div class="te-section">
-            <div class="te-label">Castle</div>
             <div class="te-castle-row">
                 <div class="te-castle-label">${b.castle ? '🏰 Castle present' : 'No castle'}</div>
                 <button class="${castleCls}" id="te-castle-btn" onclick="teToggleCastle()">${castleLbl}</button>
             </div>
             ${castleNote}
         </div>
-        <button class="te-save-btn" onclick="closeTerrEdit()">✓ Done — Save Changes</button>
+        <button class="te-save-btn" onclick="closeTerrEdit()">
+            ${hasAtt && unitTotal(TE.attUnits)>0 ? '⚔ Save & Queue Battle' : '✓ Done — Save Changes'}
+        </button>
     `;
 }
 
+// ── teSetOwner: manage which color is the "attacker" slot ──────────
 function teSetOwner(color) {
-    if (!G.board[TE.name]) return;
-    G.board[TE.name].owner = color;
+    const b = G.board[TE.name];
+    if (!b) return;
+
+    if (color === 'neutral') {
+        // Clear to neutral: wipe units, remove any pending attacker
+        b.owner = 'neutral';
+        b.units = {F:0,A:0,C:0,S:0};
+        TE.attColor = null;
+        TE.attUnits = {F:0,A:0,C:0,S:0};
+        if (CITY_SHIELDS[TE.name]) { if (G.shields) delete G.shields[TE.name]; }
+    } else if (color === b.owner) {
+        // Clicking the current defender color = remove attacker
+        TE.attColor = null;
+        TE.attUnits = {F:0,A:0,C:0,S:0};
+    } else {
+        // Different color = set as attacker (preserve units if same attacker re-selected)
+        if (TE.attColor !== color) {
+            TE.attColor = color;
+            TE.attUnits = {F:0,A:0,C:0,S:0};  // always reset to 0 when switching attacker
+        }
+    }
     renderTerrEdit();
 }
 
-function teAdjUnit(k, v) {
+// ── Adjust DEFENDER units ──────────────────────────────────────────
+function teAdjDef(k, v) {
     if (!G.board[TE.name]) return;
     G.board[TE.name].units[k] = Math.max(0, (G.board[TE.name].units[k]||0) + v);
-    // Update just the value and total without full re-render (snappy feel)
-    const el = document.getElementById('te-'+k);
+    const el = document.getElementById('te-def-'+k);
     if (el) el.textContent = G.board[TE.name].units[k];
-    const tot = document.getElementById('te-total');
-    if (tot) tot.textContent = '('+unitTotal(G.board[TE.name].units)+' total)';
 }
+
+// ── Adjust ATTACKER units (stored only in TE, not on G.board) ─────
+function teAdjAtt(k, v) {
+    if (!TE.attColor) return;
+    TE.attUnits[k] = Math.max(0, (TE.attUnits[k]||0) + v);
+    const el = document.getElementById('te-att-'+k);
+    if (el) el.textContent = TE.attUnits[k];
+    const tot = document.getElementById('te-att-total');
+    if (tot) tot.textContent = '('+unitTotal(TE.attUnits)+' units)';
+    // Refresh save button label
+    const btn = document.querySelector('.te-save-btn');
+    if (btn) btn.textContent = unitTotal(TE.attUnits)>0 ? '⚔ Save & Queue Battle' : '✓ Done — Save Changes';
+}
+
+// legacy alias kept so any leftover onclick="teAdjUnit(...)" still works
+function teAdjUnit(k, v) { teAdjDef(k, v); }
 
 function teToggleCastle() {
     if (!G.board[TE.name]) return;
     G.board[TE.name].castle = !G.board[TE.name].castle;
-    const btn = document.getElementById('te-castle-btn');
-    const b = G.board[TE.name];
-    if (btn) {
-        btn.className = b.castle ? 'te-castle-toggle on' : 'te-castle-toggle';
-        btn.textContent = b.castle ? '🏰 Remove Castle' : '+ Add Castle';
-    }
-    // Update the label text too
     renderTerrEdit();
 }
 
@@ -2930,9 +3582,9 @@ function teToggleCastle() {
 // ================================================================
 let CP = { idx:0, humanBattle:null, humanPhase:null, humanRounds:[] };
 
-function openCombatPhase() {
+function openCombatPhase(roundNum) {
     CP = { idx:0, humanBattle:null, humanPhase:null, humanRounds:[] };
-    document.getElementById('cp-round').textContent = G.round;
+    document.getElementById('cp-round').textContent = roundNum || G.round;
     document.getElementById('cp-overlay').classList.add('open');
     renderCombatPhase();
 }
@@ -2940,7 +3592,10 @@ function openCombatPhase() {
 function closeCombatPhase() {
     document.getElementById('cp-overlay').classList.remove('open');
     G.roundCombats = [];
-    prepareRound(false);
+    // Check for player elimination before starting next round
+    checkElimination();
+    // G.round was already incremented in advanceTurn before openCombatPhase was called
+    if (!G.winner) prepareRound(false);
     render();
 }
 
@@ -2975,8 +3630,8 @@ function renderCombatPhase() {
         return `<div class="cp-battle ${resolved?'resolved':''} ${isActive?'active':''}" id="cp-battle-${i}">
             <div class="cp-battle-hdr">
                 <div>
-                    <div class="cp-battle-title">${b.from} → ${b.to}</div>
-                    <div class="cp-battle-sub">${cName(b.color)} attacks ${cName(defColor)}</div>
+                    <div class="cp-battle-title">${b.from === '__editor__' ? cAttacks(b.color) : b.from+' →'} ${b.to}</div>
+                    <div class="cp-battle-sub">${cAttacks(b.color)} ${cName(defColor)}${b._fromEditor?' <span style="font-size:0.8em;opacity:0.6;">(manually queued)</span>':''}</div>
                 </div>
                 ${badge}
             </div>
@@ -3011,7 +3666,8 @@ function renderCPAutoBattle(b, idx) {
 // ── Human battle UI ───────────────────────────────────────────────
 function renderCPHumanBattle(b, idx) {
     const defColor = G.board[b.to]?.owner || 'neutral';
-    const attUnits = G.board[b.from]?.units || {};
+    // For __editor__ battles the attacker has no origin territory — use stored movingUnits
+    const attUnits = b._fromEditor ? (b.movingUnits||{}) : (G.board[b.from]?.units || {});
     const defUnits = G.board[b.to]?.units || {};
     const attHex = COLOR_HEX[b.color] || '#888';
     const defHex = COLOR_HEX[defColor] || '#888';
@@ -3048,7 +3704,9 @@ function launchCPHumanCombat(idx) {
 
 // ── Resolve automaton battle with dice ────────────────────────────
 function resolveAutoBattle(b) {
-    const att = G.board[b.from]?.units || {};
+    // Use only the units that were designated to move, not ALL units at origin
+    // (leave-behind units stay in the territory and don't fight)
+    const att = b.movingUnits || G.board[b.from]?.units || {};
     const def = G.board[b.to]?.units || {};
     const log = [];
 
@@ -3071,17 +3729,16 @@ function resolveAutoBattle(b) {
         }
     }
 
-    // Siege pre-battle
-    const aSiege = aUnits.S||0, dSiege = dUnits.S||0;
-    if (aSiege > 0) {
+    // Siege pre-battle: only the ATTACKER's siege engines fire, and only if the
+    // target has a castle. Defender siege engines do NOT get a pre-battle shot.
+    const aSiege = aUnits.S||0;
+    const targetHasCastle = G.board[b.to]?.castle || false;
+    if (aSiege > 0 && targetHasCastle) {
         const hits = rollHits(aSiege*2, 4);
         removeCasualties(dUnits, hits);
-        log.push(`Siege fire: ${aSiege} siege engine(s) → ${hits} hits on defender.`);
-    }
-    if (dSiege > 0) {
-        const hits = rollHits(dSiege*2, 4);
-        removeCasualties(aUnits, hits);
-        log.push(`Def. Siege: ${dSiege} siege engine(s) → ${hits} hits on attacker.`);
+        log.push(`Siege pre-fire: ${aSiege} siege engine(s) vs castle → ${hits} hits on defender.`);
+    } else if (aSiege > 0) {
+        log.push(`Siege engines present but no castle at ${b.to} — no pre-battle fire.`);
     }
     // Archer volley
     const aArch = aUnits.A||0, dArch = dUnits.A||0;
@@ -3096,8 +3753,9 @@ function resolveAutoBattle(b) {
     let rounds = 0;
     while (total(aUnits) > 0 && total(dUnits) > 0 && rounds < 10) {
         rounds++;
-        const aDice = (aUnits.C||0)*2 + (aUnits.F||0) + (aUnits.A||0);
-        const dDice = (dUnits.C||0)*2 + (dUnits.F||0) + (dUnits.A||0);
+        // Cavalry: 2 dice; Footmen, Archers, Siege Engines: 1 die each
+        const aDice = (aUnits.C||0)*2 + (aUnits.F||0) + (aUnits.A||0) + (aUnits.S||0);
+        const dDice = (dUnits.C||0)*2 + (dUnits.F||0) + (dUnits.A||0) + (dUnits.S||0);
         const aHits = rollHits(aDice), dHits = rollHits(dDice);
         removeCasualties(dUnits, aHits);
         removeCasualties(aUnits, dHits);
@@ -3116,25 +3774,51 @@ function applyBattleResult(b, result) {
     const defColor = G.board[b.to]?.owner || 'neutral';
     if (result.winner === b.color) {
         // Attacker wins — move survivors to captured territory
-        G.board[b.from].units = Object.fromEntries(
-            Object.entries(G.board[b.from].units).map(([k,v])=>[k, Math.max(0, v-(b.movingUnits?.[k]||0))])
-        );
+        // __editor__ battles have no origin territory to update
+        if (b.from !== '__editor__') {
+            G.board[b.from].units = Object.fromEntries(
+                Object.entries(G.board[b.from].units).map(([k,v])=>[k, Math.max(0, v-(b.movingUnits?.[k]||0))])
+            );
+        }
         G.board[b.to].owner = b.color;
         G.board[b.to].units = result.attUnits;
-        addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}.`);
+        // Award crowns for capturing a city
+        const cv = crownValueOfCity(b.to);
+        if (cv > 0) {
+            if (!G.crowns) G.crowns = {};
+            G.crowns[b.color] = (G.crowns[b.color]||0) + cv;
+            addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}. +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[b.color]} total)`);
+            checkWin(b.color);
+        } else {
+            addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}.`);
+        }
+        // Assign shield token and fire reminder
+        if (CITY_SHIELDS[b.to]) {
+            if (!G.shields) G.shields = {};
+            G.shields[b.to] = b.color;
+            addLog('🛡 ' + cName(b.color) + ' gains the ' + b.to + ' shield.');
+            showShieldReminder(b.to, b.color);
+        }
+        // Stockholm shield
+        showShieldReminder('Stockholm', b.color);   // toast for human
+        applyShieldBonus('Stockholm', b.color, 'battle_win');  // auto-apply for automa
     } else if (result.winner === 'defender') {
         // Defender holds — attacking units destroyed
-        ['F','A','C','S'].forEach(k => {
-            G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
-        });
+        if (b.from !== '__editor__') {
+            ['F','A','C','S'].forEach(k => {
+                G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
+            });
+        }
         addLog(`${cName(defColor)} holds ${b.to} against ${cName(b.color)}.`);
     } else {
         // Both wiped — territory goes neutral
         G.board[b.to].units = {F:0,A:0,C:0,S:0};
         G.board[b.to].owner = 'neutral';
-        ['F','A','C','S'].forEach(k => {
-            G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
-        });
+        if (b.from !== '__editor__') {
+            ['F','A','C','S'].forEach(k => {
+                G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
+            });
+        }
         addLog(`${b.to}: both sides eliminated — territory neutral.`);
     }
 }
@@ -3174,17 +3858,6 @@ showStep(0);
   </div>
 </div>
 
-
-<!-- COMBAT MODAL -->
-<div class="combat-overlay" id="combat-overlay">
-  <div class="combat-modal">
-    <div class="combat-header">
-      <span id="combat-title">COMBAT</span>
-      <span class="combat-phase-badge" id="combat-phase-label">—</span>
-    </div>
-    <div class="combat-body" id="combat-body"></div>
-  </div>
-</div>
 
 
 <!-- Territory Edit Modal -->
