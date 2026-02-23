@@ -597,13 +597,27 @@
         </div>
         <div class="ref-toggle">
             <button class="ref-toggle-btn" onclick="toggleRef('ref-move')">
-                🚶 Movement Leave-Behind Rules <span class="arrow">▼</span>
+                🚶 Movement <span class="arrow">▼</span>
             </button>
             <div class="ref-body" id="ref-move">
-                When an automaton army departs a territory it must leave units behind:<br><br>
-                • <b>Non-urban territory:</b> always leave <b>1 unit</b> behind.<br>
-                • <b>City:</b> leave a number of units equal to the city's <b>Tax value</b>.<br><br>
-                <b>Which units to leave (in order):</b><br>
+                <b>EXPAND</b> — Move an army from any territory into an adjacent city (non-owned).<br>
+                Priority: highest Tax city &amp; largest army. If tied: fewest defenders; roll die.<br><br>
+
+                <b>SPLIT EXPAND</b> — Move one army up to <b>2 territories</b> toward a city to enter it.<br>
+                Cannot pass through enemy territory — must stop and fight if it enters one.<br>
+                Priority: highest Tax → 1 step preferred over 2 → fewest defenders. If can't reach any city: fall back to Maneuver.<br><br>
+
+                <b>POSITION</b> — When no city entry is possible, move the <b>largest army</b> one step toward the highest-Tax non-owned city.<br><br>
+
+                <b>MANEUVER</b> — Relocate any units from one own territory to another own or disputed territory up to <b>2 territories away</b>, travelling only through own territories.<br>
+                Cannot move out of a disputed territory. Stops upon entering a disputed territory.<br>
+                Priority: reinforce threatened territory (highest Tax) → reinforce frontline near enemy city → reposition.<br><br>
+
+                <hr style="border:none;border-top:1px solid var(--border);margin:8px 0;">
+                <b>LEAVE-BEHIND</b> — When an army departs a territory it must leave units behind:<br><br>
+                • <b>Non-urban territory:</b> always leave <b>1 unit</b>.<br>
+                • <b>City:</b> leave units equal to the city's <b>Tax value</b> (e.g. Tax 3 → leave 3).<br><br>
+                <b>Which units to leave (cheapest first):</b><br>
                 A. Footmen &nbsp;→&nbsp; B. Archers &nbsp;→&nbsp; C. Siege Engines &nbsp;→&nbsp; D. Cavalry
             </div>
         </div>
@@ -1038,30 +1052,50 @@ function decideSplitExpand(color) {
         }
     }
     if (!candidates.length) return null;
-    candidates.sort((a,b) => b.tax-a.tax || b.movable-a.movable || a.defenders-b.defenders);
+    // Priority: highest tax → 1-step preferred over 2-step → fewest defenders → most units arriving
+    candidates.sort((a,b) =>
+        (b.tax - a.tax) ||
+        ((a.via ? 1 : 0) - (b.via ? 1 : 0)) ||   // null via = 1-step = better
+        (a.defenders - b.defenders) ||              // fewest defenders
+        (b.movable - a.movable)                     // most units
+    );
     return candidates[0];
 }
 
 function decidePosition(color) {
-    // Move largest army one step toward highest-tax non-owned city
-    const targetCities = ALL_CITIES
-        .filter(c => G.board[c]?.owner !== color)
-        .sort((a,b) => T[b].tax - T[a].tax);
-    for (const target of targetCities) {
-        let best = null;
-        for (const t of ownedBy(color)) {
-            const movable = movableCount(t, color);
-            if (movable <= 0) continue;
-            // Is t adjacent to target, or adjacent to something adjacent to target?
-            for (const adj of T[t].adj) {
-                if (adj === target || T[target].adj.includes(adj)) {
-                    if (!best || movable > best.movable) best = { from:t, to:adj===target?adj:adj, toward:target, movable };
-                }
+    // Move LARGEST possible army one step so it ends up ADJACENT to a non-owned city.
+    // "Position" never moves INTO a city — that is always EXPAND.
+    // The destination must be own or neutral (enemy territories require combat).
+    // Primary sort: most movable units. Tiebreaker: highest-tax target city.
+    const candidates = [];
+    for (const t of ownedBy(color)) {
+        const movable = movableCount(t, color);
+        if (movable <= 0) continue;
+        for (const adj of (T[t]?.adj || [])) {
+            // Skip cities entirely — moving into a city is EXPAND, not POSITION
+            if (T[adj]?.tax > 0) continue;
+            // Skip enemy territories — moving there requires combat
+            const adjOwner = G.board[adj]?.owner;
+            if (adjOwner && adjOwner !== color && adjOwner !== 'neutral') continue;
+            // adj is a valid destination (own non-city, or neutral non-city)
+            // Add a candidate for each non-owned city adjacent to adj
+            for (const city of (T[adj]?.adj || [])) {
+                if (!T[city] || T[city].tax === 0) continue;
+                if (G.board[city]?.owner === color) continue; // already own it
+                candidates.push({ from:t, to:adj, toward:city, targetTax:T[city].tax, movable });
             }
         }
-        if (best) return best;
     }
-    return null;
+    if (!candidates.length) return null;
+    // Sort: largest army first, highest-tax target city second
+    // Deduplicate by (from,to) — pick the best target city for each from→to pair
+    candidates.sort((a,b) => b.movable - a.movable || b.targetTax - a.targetTax);
+    const seen = new Set();
+    for (const c of candidates) {
+        const key = c.from + '|' + c.to;
+        if (!seen.has(key)) { seen.add(key); return c; }
+    }
+    return candidates[0];
 }
 
 function decideFortify(color) {
@@ -1161,28 +1195,45 @@ function decideManeuver(color) {
     const moves = getManeuverMoves(color);
     if (!moves.length) return null;
 
-    // Priority 1: reinforce a threatened territory (own territory adjacent to enemy)
+    // Priority 1: reinforce a threatened territory
+    // Rule: "choisissez son terrain qui peut apporter le plus de renfort"
+    // — pick the source that brings the MOST units to the best threatened destination.
+    // Threatened territory priority: 1. highest tax  2. most reinforcement available  3. most attackers
     const isDisputed = (name) => (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
-    const threatened = new Set();
+    const threatenedTerrs = new Set();
     for (const t of ownedBy(color)) {
         for (const adj of T[t].adj) {
             const b = G.board[adj];
             if (b?.owner && b.owner !== color && b.owner !== 'neutral') {
-                threatened.add(t);
+                threatenedTerrs.add(t);
             }
         }
     }
-    // Filter to moves whose destination is threatened
-    const defensiveMoves = moves.filter(m => threatened.has(m.to));
-    if (defensiveMoves.length) {
-        // Best defensive move: highest-tax destination, then most units arriving
-        defensiveMoves.sort((a,b) =>
-            (T[b.to].tax||0) - (T[a.to].tax||0) ||
-            b.movable - a.movable
-        );
-        const m = defensiveMoves[0];
-        return { from:m.from, to:m.to, movable:m.movable,
-            reason:`Reinforce threatened ${m.to} (Tax ${T[m.to].tax||0})${m.hops===2?' — 2-step maneuver':''}` };
+    if (threatenedTerrs.size > 0) {
+        // Sort threatened territories by priority: tax → most reinforcement reachable → most attackers nearby
+        const threatenedList = [...threatenedTerrs].map(terr => {
+            const movesToHere = moves.filter(m => m.to === terr);
+            const maxReinforcement = movesToHere.reduce((mx, m) => Math.max(mx, m.movable), 0);
+            const attackerCount = T[terr].adj.reduce((sum, adj) => {
+                const b = G.board[adj];
+                return (b?.owner && b.owner !== color && b.owner !== 'neutral')
+                    ? sum + totalUnitCount(adj) : sum;
+            }, 0);
+            return { terr, tax: T[terr].tax||0, maxReinforcement, attackerCount, movesToHere };
+        }).filter(t => t.movesToHere.length > 0); // only if reachable
+        if (threatenedList.length > 0) {
+            threatenedList.sort((a,b) =>
+                b.tax - a.tax ||                          // highest tax first
+                b.maxReinforcement - a.maxReinforcement || // most reinforcement available
+                b.attackerCount - a.attackerCount          // most attackers (most urgent)
+            );
+            const best = threatenedList[0];
+            // Among moves to this territory, pick the one that delivers the most units
+            best.movesToHere.sort((a,b) => b.movable - a.movable);
+            const m = best.movesToHere[0];
+            return { from:m.from, to:m.to, movable:m.movable,
+                reason:`Reinforce threatened ${m.to} (Tax ${T[m.to].tax||0}, ${best.attackerCount} attackers nearby)${m.hops===2?' — 2-step':''}` };
+        }
     }
 
     // Priority 2: reinforce territory adjacent to highest-tax enemy city
@@ -2014,13 +2065,13 @@ function generateSteps(card, color, coins) {
             ...(combatStep ? [combatStep] : []),
         ];
     } else if (posDec) {
-        G.pendingMove = { type:'position', color, from:posDec.from, to:posDec.to };
+        const posMoving = unitsToMove(posDec.from, posDec.movable, false);
+        G.pendingMove = { type:'position', color, from:posDec.from, to:posDec.to, movingUnits:posMoving };
         G.pendingMoves.push(G.pendingMove);
-        const leave = leaveBehindCount(posDec.from);
-        const moving = unitsToMove(posDec.from, posDec.movable, false);
+        const leaveN2 = leaveBehindCount(posDec.from);
         EXPAND = [
-            `<b>NO DIRECT CITY ENTRY POSSIBLE — POSITION:</b> Move <b>${unitStr(moving)}</b> from <b>${posDec.from}</b> → <b>${posDec.to}</b> (moving toward <b>${posDec.toward}</b>).
-            <span class="rule-note">Leave-behind: ${T[posDec.from].tax>0?'Tax value '+T[posDec.from].tax:1} unit${T[posDec.from].tax>1||T[posDec.from].tax===0?' s':''} at ${posDec.from}.</span>`,
+            `<b>NO DIRECT CITY ENTRY POSSIBLE — POSITION:</b> Move <b>${unitStr(posMoving)}</b> from <b>${posDec.from}</b> → <b>${posDec.to}</b> (moving toward <b>${posDec.toward}</b>).
+            <span class="rule-note">Leave-behind: ${T[posDec.from].tax>0?'Tax value '+T[posDec.from].tax+' units':1+' unit'} at ${posDec.from}.</span>`,
         ];
     } else if (maneuverDec) {
         const moving = unitsToMove(maneuverDec.from, maneuverDec.movable, false);
@@ -2133,7 +2184,6 @@ function generateSteps(card, color, coins) {
     if (card === "SPLIT EXPAND OR MANEUVER") {
         const splitDec = decideSplitExpand(color);
         if (splitDec) {
-            const leave = leaveBehindCount(splitDec.from);
             const moving = unitsToMove(splitDec.from, splitDec.movable, splitDec.hasCastle);
             G.pendingMove = { type:'expand', color, from:splitDec.from, to:splitDec.to,
                 movingUnits:moving, movable:splitDec.movable, isEnemy:splitDec.isEnemy };
@@ -2143,7 +2193,18 @@ function generateSteps(card, color, coins) {
                 <span class="rule-note">Leave ${T[splitDec.from].tax>0?'Tax value '+T[splitDec.from].tax:'1'} unit(s) at ${splitDec.from}. Target ${splitDec.to}: Tax ${splitDec.tax}${splitDec.isEnemy?', ENEMY: '+splitDec.defenders+' defenders':''}${splitDec.hasCastle?' — has castle (Siege Engine required)':''}</span>`);
             if (splitDec.isEnemy) steps.push(renderCombatDialog(G.pendingMove));
         } else {
-            steps.push(...EXPAND);
+            // Rule: if no city can be entered, MANEUVER only — not expand or position
+            if (maneuverDec) {
+                const mMov = unitsToMove(maneuverDec.from, maneuverDec.movable, false);
+                G.pendingMove = { type:'maneuver', color, from:maneuverDec.from, to:maneuverDec.to, movingUnits:mMov };
+                G.pendingMoves.push(G.pendingMove);
+                const hNote = maneuverDec.reason?.includes('2-step') ? ' (2-step)' : '';
+                steps.push(`<b>NO CITY REACHABLE — MANEUVER:</b> Move <b>${unitStr(mMov)}</b> from <b>${maneuverDec.from}</b> → <b>${maneuverDec.to}</b>${hNote}.
+                <span class="rule-note">${maneuverDec.reason}</span>`);
+            } else {
+                G.pendingMove = { type:'none' }; G.pendingMoves.push(G.pendingMove);
+                steps.push(`<b>NO MOVE POSSIBLE</b> — ${C} cannot Split Expand or Maneuver. ✓ and continue.`);
+            }
         }
         return steps;
     }
@@ -2159,7 +2220,74 @@ function generateSteps(card, color, coins) {
         steps.push(`<b>FORTIFY:</b> Add <b>+${fortCount} Footmen</b> to <b>${fortTerr}</b> (currently ${currCount} units${fortDec&&G.board[fortTerr]?.castle?' — has castle':''}). Take them from the supply.
             <span class="rule-note">${fortDec&&fortDec.hasCastle?'+4 Footmen because this location has a castle.':'+3 Footmen to a city.'} Priority: fewest units → highest Tax → Capital beats city → roll die.</span>`);
         steps.push(null); // ── section divider ──
-        steps.push(...EXPAND);
+
+        // ── CRITICAL: recompute expand/position/maneuver AFTER applying fortify ──
+        // The fortify hasn't hit G.board yet (it applies in advanceTurn), so we
+        // temporarily apply it now, recompute, then undo.
+        // This ensures the expand picks up the newly fortified army if it's now largest.
+        if (fortDec && G.board[fortDec.territory]) {
+            G.board[fortDec.territory].units.F = (G.board[fortDec.territory].units.F||0) + fortDec.count;
+        }
+        // Remove the EXPAND steps we pushed earlier (they used stale board state)
+        // and recompute with the updated board
+        // First, remove the stale pendingMove that EXPAND pushed (if any)
+        G.pendingMoves = G.pendingMoves.filter(m => m._berlinBonus || m.type === 'fortify');
+        G.pendingMove = null;
+        const postFortExpandDec  = decideExpand(color);
+        const postFortManDec     = decideManeuver(color);
+        const postFortPosDec     = decidePosition(color);
+        // Undo the temporary fortify
+        if (fortDec && G.board[fortDec.territory]) {
+            G.board[fortDec.territory].units.F = Math.max(0, (G.board[fortDec.territory].units.F||0) - fortDec.count);
+        }
+        // Rebuild EXPAND block with post-fortify decisions
+        let EXPAND_POST;
+        if (postFortExpandDec) {
+            const pLeave = leaveBehindCount(postFortExpandDec.from);
+            const pMoving = unitsToMove(postFortExpandDec.from, postFortExpandDec.movable, postFortExpandDec.hasCastle);
+            const pLeaveUnits = unitsToLeave(postFortExpandDec.from, pLeave);
+            G.pendingMove = { type:'expand', color, from:postFortExpandDec.from, to:postFortExpandDec.to,
+                movingUnits:pMoving, movable:postFortExpandDec.movable, isEnemy:postFortExpandDec.isEnemy };
+            G.pendingMoves.push(G.pendingMove);
+            const pMoveDetail  = `Move <b>${unitStr(pMoving)}</b> from <b>${postFortExpandDec.from}</b> → <b>${postFortExpandDec.to}</b>`;
+            const pLeaveDetail = `Leave <b>${unitStr(pLeaveUnits)}</b> at ${postFortExpandDec.from}`;
+            const pCombatStep  = postFortExpandDec.isEnemy ? renderCombatDialog(G.pendingMove) : null;
+            const pHasBerlin   = CITY_SHIELDS['Berlin']?.trigger === 'expand_spend' && G.shields?.['Berlin'] === color;
+            const pBerlinNote  = pHasBerlin
+                ? `<div class="shield-reminder">${color===S.playerColor?CITY_SHIELDS['Berlin'].reminder:'🛡 BERLIN SHIELD: '+cName(color)+' expands then also maneuvers. Castles cost 3 fewer coins.'}</div>`
+                : null;
+            if (pHasBerlin && color !== S.playerColor) {
+                const bm = decideManeuver(color);
+                if (bm) { const bmMv = unitsToMove(bm.from,bm.movable,false); G.pendingMoves.push({type:'maneuver',color,from:bm.from,to:bm.to,movingUnits:bmMv,_berlinBonus:true}); }
+            }
+            EXPAND_POST = [
+                `<b>EXPAND:</b> ${pMoveDetail}.<br>${pLeaveDetail} (leave-behind: ${T[postFortExpandDec.from].tax>0?'Tax value '+T[postFortExpandDec.from].tax:'1 unit for non-urban'}).
+                 <span class="rule-note">Target: ${postFortExpandDec.to} (Tax ${postFortExpandDec.tax}${postFortExpandDec.isEnemy?', ENEMY: '+postFortExpandDec.defenders+' defenders':', '+(G.board[postFortExpandDec.to].owner==='neutral'?'neutral':'friendly')+'.'}).${postFortExpandDec.hasCastle?' ⚠ Has castle — Siege Engine required.':''}</span>`,
+                ...(pBerlinNote ? [pBerlinNote] : []),
+                ...(pCombatStep ? [pCombatStep] : []),
+            ];
+        } else if (postFortPosDec) {
+            const pPosMoving = unitsToMove(postFortPosDec.from, postFortPosDec.movable, false);
+            G.pendingMove = { type:'position', color, from:postFortPosDec.from, to:postFortPosDec.to, movingUnits:pPosMoving };
+            G.pendingMoves.push(G.pendingMove);
+            EXPAND_POST = [
+                `<b>NO DIRECT CITY ENTRY POSSIBLE — POSITION:</b> Move <b>${unitStr(pPosMoving)}</b> from <b>${postFortPosDec.from}</b> → <b>${postFortPosDec.to}</b> (moving toward <b>${postFortPosDec.toward}</b>).
+                <span class="rule-note">Leave-behind: ${T[postFortPosDec.from].tax>0?'Tax value '+T[postFortPosDec.from].tax+' units':'1 unit'} at ${postFortPosDec.from}.</span>`,
+            ];
+        } else if (postFortManDec) {
+            const pManMoving = unitsToMove(postFortManDec.from, postFortManDec.movable, false);
+            G.pendingMove = { type:'maneuver', color, from:postFortManDec.from, to:postFortManDec.to, movingUnits:pManMoving };
+            G.pendingMoves.push(G.pendingMove);
+            EXPAND_POST = [
+                `<b>MANEUVER:</b> Move <b>${unitStr(pManMoving)}</b> from <b>${postFortManDec.from}</b> → <b>${postFortManDec.to}</b>.
+                <span class="rule-note">${postFortManDec.reason}</span>`,
+            ];
+        } else {
+            G.pendingMove = { type:'none' };
+            G.pendingMoves.push(G.pendingMove);
+            EXPAND_POST = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver. ✓ and continue.`];
+        }
+        steps.push(...EXPAND_POST);
         return steps;
     }
 
