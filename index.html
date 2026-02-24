@@ -689,14 +689,15 @@
 // DATA
 // ================================================================
 const CAPITALS = [
-    { name:"Madrid",         tax:3, units:3, adjOptions:[{name:"Valencia",units:2}] },
-    { name:"Paris",          tax:3, units:3, adjOptions:[{name:"Lorraine",units:2},{name:"Normandy",units:2},{name:"Navarre",units:2}] },
-    { name:"London",         tax:3, units:3, adjOptions:[{name:"Lorraine",units:2},{name:"Normandy",units:2},{name:"Wales",units:2}] },
-    { name:"Stockholm",      tax:3, units:3, adjOptions:[{name:"Denmark",units:2},{name:"Finland",units:2}] },
-    { name:"Kiev",           tax:2, units:2, adjOptions:[{name:"Smolensk",units:3}] },
-    { name:"Rome",           tax:4, units:3, adjOptions:[{name:"Lombardy",units:2}] },
-    { name:"Berlin",         tax:4, units:3, adjOptions:[{name:"Lorraine",units:2},{name:"Denmark",units:2},{name:"Bohemia",units:2},{name:"Franconia",units:2}] },
-    { name:"Constantinople", tax:3, units:3, adjOptions:[{name:"Bulgaria",units:2}] },
+    // name = territory key in T[]; city = display name; adjOptions = starting secondary options
+    { name:"León Castile", city:"Madrid",         tax:3, units:3, adjOptions:[{name:"Valencia",units:2},{name:"Portugal",units:2},{name:"Navarre",units:2}] },
+    { name:"France",       city:"Paris",          tax:3, units:3, adjOptions:[{name:"Normandy",units:2},{name:"Lorraine",units:2},{name:"Navarre",units:2},{name:"Burgundy",units:2}] },
+    { name:"England",      city:"London",         tax:3, units:3, adjOptions:[{name:"Wales",units:2},{name:"Normandy",units:2},{name:"Scotland",units:2}] },
+    { name:"Sweden",       city:"Stockholm",      tax:3, units:3, adjOptions:[{name:"Norway",units:2},{name:"Denmark",units:2},{name:"Finland",units:2}] },
+    { name:"Rusland",      city:"Kiev",           tax:2, units:2, adjOptions:[{name:"Galicia",units:3},{name:"Smolensk",units:3},{name:"Lithuania",units:3}] },
+    { name:"Rome",         city:"Rome",           tax:4, units:3, adjOptions:[{name:"Lombardy",units:2},{name:"Kingdom of Sicily",units:2}] },
+    { name:"Saxony",       city:"Berlin",         tax:4, units:3, adjOptions:[{name:"Pomerania",units:2},{name:"Lorraine",units:2},{name:"Franconia",units:2},{name:"Friesland",units:2}] },
+    { name:"Turkey",       city:"Constantinople", tax:3, units:3, adjOptions:[{name:"Bulgaria",units:2},{name:"Greece",units:2}] },
 ];
 
 const DECK_BASE = [
@@ -723,79 +724,124 @@ const COLOR_HEX = { orange:'#f97316', green:'#4db847', purple:'#3b0764', blue:'#
 // TERRITORY MAP  (62 territories, verified from board image)
 // ================================================================
 const T = {
+  // Cities are embedded in their territory. T[terr].city = city name (for shields/display).
+  // T[terr].tax > 0 means that territory contains a city.
+  // Adjacencies verified by user against physical map.
+
   // --- BRITISH ISLES ---
   "Scotland":          { tax:0, adj:["England","Ireland","Norway"] },
-  "Ireland":           { tax:0, adj:["Scotland","Wales","Dublin","Brittany","Norway"] },
-  "Dublin":            { tax:2, adj:["Ireland","Wales"] },
-  "Wales":             { tax:0, adj:["Ireland","England","London"] },
-  "England":           { tax:0, adj:["Scotland","Wales","London"] },
-  "London":            { tax:3, adj:["England","Wales","Normandy"] },
+  "England":           { tax:3, city:"London",        adj:["Scotland","Wales","Normandy","Lorraine"] },
+  "Wales":             { tax:0, adj:["Ireland","England"] },
+  "Ireland":           { tax:2, city:"Dublin",        adj:["Scotland","Wales","Brittany"] },
   // --- SCANDINAVIA ---
-  "Norway":            { tax:0, adj:["Scotland","Ireland","Sweden","Denmark"] },
-  "Sweden":            { tax:0, adj:["Norway","Finland","Denmark","Stockholm"] },
-  "Stockholm":         { tax:3, adj:["Sweden","Finland","Denmark"] },
-  "Finland":           { tax:0, adj:["Sweden","Stockholm","Estonia","Novgorod"] },
-  "Denmark":           { tax:0, adj:["Norway","Sweden","Stockholm","Friesland","Pomerania"] },
+  "Norway":            { tax:0, adj:["Scotland","Sweden","Denmark"] },
+  "Sweden":            { tax:3, city:"Stockholm",     adj:["Norway","Finland","Denmark"] },
+  "Finland":           { tax:0, adj:["Sweden","Estonia","Rep. Novgorod"] },
+  "Denmark":           { tax:0, adj:["Norway","Sweden","Friesland","Pomerania","Saxony","Bohemia","Poland"] },
   // --- FRANCE / IBERIA ---
-  "Brittany":          { tax:0, adj:["Ireland","Normandy","France"] },
-  "Normandy":          { tax:0, adj:["London","Brittany","Paris","Lorraine","France"] },
-  "Paris":             { tax:3, adj:["Normandy","France","Lorraine","Burgundy"] },
-  "France":            { tax:0, adj:["Brittany","Normandy","Paris","Burgundy","Navarre"] },
-  "Burgundy":          { tax:0, adj:["France","Paris","Lorraine","Swabia","Lombardy","Barcelona","Navarre"] },
-  "Navarre":           { tax:0, adj:["France","Burgundy","Barcelona","León Castile"] },
-  "León Castile":      { tax:0, adj:["Navarre","Portugal","Valencia","Granada","Madrid","Morocco"] },
-  "Madrid":            { tax:3, adj:["León Castile","Portugal","Valencia"] },
-  "Portugal":          { tax:0, adj:["León Castile","Madrid","Granada"] },
-  "Valencia":          { tax:0, adj:["León Castile","Madrid","Barcelona","Granada"] },
-  "Barcelona":         { tax:0, adj:["Navarre","Burgundy","Valencia"] },
-  "Granada":           { tax:0, adj:["León Castile","Portugal","Valencia"] },
+  "Brittany":          { tax:0, adj:["Ireland","Normandy","France","León Castile"] },
+  "Normandy":          { tax:0, adj:["England","Brittany","France"] },
+  "France":            { tax:3, city:"Paris",         adj:["Brittany","Normandy","Lorraine","Burgundy","Navarre","Barcelona"] },
+  "Burgundy":          { tax:0, adj:["France","Lorraine","Swabia","Lombardy","Barcelona"] },
+  "Navarre":           { tax:0, adj:["France","Barcelona","León Castile","Valencia"] },
+  "León Castile":      { tax:3, city:"Madrid",        adj:["Navarre","Portugal","Valencia","Granada","Morocco","Brittany"] },
+  "Portugal":          { tax:0, adj:["León Castile"] },
+  "Valencia":          { tax:0, adj:["León Castile","Barcelona","Granada","Navarre","Algeria"] },
+  "Barcelona":         { tax:0, adj:["Navarre","Burgundy","Valencia","France"] },
+  "Granada":           { tax:0, adj:["León Castile","Valencia"] },
   "Morocco":           { tax:0, adj:["León Castile","Algeria"] },
   // --- HOLY ROMAN EMPIRE ---
   "Friesland":         { tax:0, adj:["Denmark","Saxony","Lorraine"] },
-  "Saxony":            { tax:0, adj:["Denmark","Friesland","Berlin","Lorraine","Franconia","Bohemia","Pomerania"] },
-  "Berlin":            { tax:4, adj:["Saxony","Pomerania","Franconia"] },
-  "Lorraine":          { tax:0, adj:["Normandy","Friesland","Saxony","Franconia","Swabia","Burgundy","Paris"] },
-  "Franconia":         { tax:0, adj:["Saxony","Berlin","Lorraine","Bohemia","Bavaria","Swabia"] },
-  "Swabia":            { tax:0, adj:["Lorraine","Franconia","Zurich","Bavaria","Burgundy","Lombardy"] },
-  "Zurich":            { tax:2, adj:["Swabia","Bavaria","Lombardy"] },
-  "Bavaria":           { tax:0, adj:["Franconia","Swabia","Zurich","Bohemia","Highlands","Venice"] },
-  "Bohemia":           { tax:0, adj:["Saxony","Franconia","Bavaria","Highlands","Poland"] },
+  "Saxony":            { tax:4, city:"Berlin",        adj:["Friesland","Lorraine","Franconia","Bohemia","Denmark"] },
+  "Lorraine":          { tax:0, adj:["England","Friesland","Saxony","Franconia","Swabia","Burgundy","France"] },
+  "Franconia":         { tax:0, adj:["Saxony","Lorraine","Bohemia","Bavaria","Swabia"] },
+  "Swabia":            { tax:2, city:"Zurich",        adj:["Lorraine","Franconia","Bavaria","Burgundy","Lombardy"] },
+  "Bavaria":           { tax:0, adj:["Franconia","Swabia","Bohemia","Highlands","Venice","Hungary","Lombardy"] },
+  "Bohemia":           { tax:0, adj:["Saxony","Franconia","Bavaria","Highlands","Poland","Denmark"] },
   // --- EASTERN EUROPE ---
-  "Pomerania":         { tax:0, adj:["Denmark","Saxony","Berlin","Poland","Prussia"] },
-  "Prussia":           { tax:0, adj:["Pomerania","Poland","Lithuania"] },
-  "Poland":            { tax:0, adj:["Pomerania","Prussia","Bohemia","Highlands","Warsaw","Galicia","Lithuania"] },
-  "Warsaw":            { tax:2, adj:["Poland","Galicia","Lithuania"] },
+  "Pomerania":         { tax:0, adj:["Denmark","Poland","Prussia","Lithuania"] },
+  "Prussia":           { tax:0, adj:["Pomerania","Poland","Lithuania","Polotsk"] },
+  "Poland":            { tax:2, city:"Warsaw",        adj:["Pomerania","Prussia","Bohemia","Highlands","Galicia","Hungary","Polotsk","Rusland","Denmark"] },
   "Highlands":         { tax:0, adj:["Bohemia","Bavaria","Poland","Hungary","Galicia"] },
-  "Hungary":           { tax:0, adj:["Highlands","Bavaria","Venice","Buda","Galicia","Serbia"] },
-  "Buda":              { tax:3, adj:["Hungary","Venice","Galicia","Serbia"] },
-  "Galicia":           { tax:0, adj:["Poland","Warsaw","Highlands","Hungary","Buda","Rusland"] },
-  "Rusland":           { tax:0, adj:["Galicia","Lithuania","Polotsk","Smolensk","Kiev"] },
-  "Kiev":              { tax:2, adj:["Rusland","Smolensk"] },
-  "Lithuania":         { tax:0, adj:["Prussia","Poland","Warsaw","Rusland","Polotsk","Estonia"] },
-  "Estonia":           { tax:0, adj:["Finland","Lithuania","Polotsk","Novgorod"] },
-  "Polotsk":           { tax:0, adj:["Lithuania","Estonia","Rusland","Smolensk","Novgorod"] },
-  "Smolensk":          { tax:0, adj:["Rusland","Kiev","Polotsk","Novgorod"] },
-  "Novgorod":          { tax:4, adj:["Finland","Estonia","Polotsk","Smolensk"] },
+  "Hungary":           { tax:3, city:"Buda",          adj:["Highlands","Venice","Galicia","Serbia","Bulgaria","Bavaria","Poland"] },
+  "Galicia":           { tax:0, adj:["Poland","Highlands","Hungary","Rusland","Bulgaria"] },
+  "Rusland":           { tax:2, city:"Kiev",          adj:["Galicia","Polotsk","Smolensk","Poland"] },
+  "Lithuania":         { tax:0, adj:["Prussia","Polotsk","Estonia","Smolensk","Pomerania"] },
+  "Estonia":           { tax:0, adj:["Finland","Lithuania","Rep. Novgorod","Smolensk"] },
+  "Polotsk":           { tax:0, adj:["Lithuania","Rusland","Smolensk","Poland","Prussia"] },
+  "Smolensk":          { tax:0, adj:["Rusland","Polotsk","Rep. Novgorod","Estonia","Lithuania"] },
+  "Rep. Novgorod":     { tax:4, city:"Novgorod",      adj:["Finland","Estonia","Smolensk"] },
   // --- ITALY ---
-  "Lombardy":          { tax:0, adj:["Burgundy","Swabia","Zurich","Venice","Rome"] },
-  "Venice":            { tax:0, adj:["Bavaria","Hungary","Buda","Lombardy","Kingdom of Sicily","Serbia"] },
-  "Rome":              { tax:4, adj:["Lombardy","Kingdom of Sicily"] },
-  "Kingdom of Sicily": { tax:0, adj:["Rome","Venice","Sardinia","Tunisia","Bejaia"] },
-  "Sardinia":          { tax:0, adj:["Kingdom of Sicily","Tunisia"] },
+  "Lombardy":          { tax:0, adj:["Burgundy","Swabia","Rome","Bavaria"] },
+  "Venice":            { tax:0, adj:["Bavaria","Hungary","Kingdom of Sicily","Serbia"] },
+  "Rome":              { tax:4, city:"Rome",           adj:["Lombardy","Kingdom of Sicily","Sardinia"] },
+  "Kingdom of Sicily": { tax:0, adj:["Rome","Venice"] },
+  "Sardinia":          { tax:0, adj:["Tunisia","Rome"] },
   // --- BALKANS ---
-  "Serbia":            { tax:0, adj:["Hungary","Buda","Venice","Bulgaria","Greece"] },
-  "Bulgaria":          { tax:0, adj:["Serbia","Greece","Constantinople","Turkey"] },
-  "Greece":            { tax:0, adj:["Serbia","Bulgaria","Athens","Constantinople"] },
-  "Athens":            { tax:2, adj:["Greece","Constantinople"] },
-  "Constantinople":    { tax:3, adj:["Bulgaria","Greece","Athens","Turkey"] },
-  "Turkey":            { tax:0, adj:["Constantinople","Bulgaria"] },
+  "Serbia":            { tax:0, adj:["Hungary","Venice","Bulgaria","Greece"] },
+  "Bulgaria":          { tax:0, adj:["Serbia","Greece","Turkey","Hungary","Galicia"] },
+  "Greece":            { tax:2, city:"Athens",        adj:["Serbia","Bulgaria","Turkey","Tunisia"] },
+  "Turkey":            { tax:3, city:"Constantinople", adj:["Greece","Bulgaria"] },
   // --- NORTH AFRICA ---
-  "Algeria":           { tax:0, adj:["Morocco","Tunisia","Bejaia"] },
-  "Bejaia":            { tax:3, adj:["Algeria","Tunisia","Kingdom of Sicily"] },
-  "Tunisia":           { tax:0, adj:["Algeria","Bejaia","Kingdom of Sicily","Sardinia"] },
+  "Algeria":           { tax:3, city:"Bejaia",        adj:["Morocco","Tunisia","Valencia"] },
+  "Tunisia":           { tax:0, adj:["Algeria","Sardinia","Greece"] },
 };
 
-// Helper: list all city (capital) names
+// ── Shield key lookup by territory name ─────────────────────────
+// CITY_SHIELDS keys are city names; board keys are territory names.
+// Use these helpers everywhere a shield needs to be looked up by territory.
+function shieldKeyForTerr(terrName) {
+    // Returns the CITY_SHIELDS key (city name) for a given territory, or null
+    if (!terrName) return null;
+    // Direct match (Rome is both territory and city)
+    if (CITY_SHIELDS[terrName]) return terrName;
+    // Look up by terr property
+    const entry = Object.entries(CITY_SHIELDS).find(([,v]) => v.terr === terrName);
+    return entry ? entry[0] : null;
+}
+function shieldForTerr(terrName) {
+    const k = shieldKeyForTerr(terrName);
+    return k ? CITY_SHIELDS[k] : null;
+}
+
+// cityOf(terrName): returns the city name for a territory, or the territory name if it IS a city (Rome)
+function cityOf(terrName) { return T[terrName]?.city || terrName; }
+
+// terrLabel(name): display label for a territory, annotating city and shield status.
+// e.g. "Saxony (Berlin 🛡)" with golden shield city colored yellow.
+// shieldOwner: if provided, only highlight when that color owns the shield.
+function terrLabel(name, shieldOwner) {
+    if (!name) return name;
+    const city = T[name]?.city;
+    const sk   = shieldKeyForTerr(name);
+    const hasShield = !!sk;
+    // If no city annotation needed, just return plain name
+    if (!city || city === name) {
+        if (!hasShield) return name;
+        return name + ' <span style="color:#c8960c;font-size:0.82em;">🛡</span>';
+    }
+    // Has a separate city name
+    const shieldSpan = hasShield
+        ? ` <span style="color:#c8960c;font-weight:700;font-size:0.82em;">🛡</span>`
+        : '';
+    const citySpan = hasShield
+        ? ` <span style="color:#c8960c;font-size:0.82em;">(${city}${shieldSpan})</span>`
+        : ` <span style="font-size:0.82em;color:var(--ink-light);">(${city})</span>`;
+    return name + citySpan;
+}
+// terrOf(cityOrTerrName): given a city name from CITY_SHIELDS, returns the territory name
+function terrOf(cityName) {
+    if (T[cityName]) return cityName; // it's already a territory name (Rome, or non-city)
+    const found = Object.keys(T).find(k => T[k].city === cityName);
+    return found || cityName;
+}
+// cityLabel(terrName): display string, e.g. "France (Paris)" or just "Rome"
+function cityLabel(terrName) {
+    const city = T[terrName]?.city;
+    return city && city !== terrName ? `${terrName} (${city})` : terrName;
+}
+
+// Helper: list all city territory names (territories that contain a city)
 const ALL_CITIES = Object.keys(T).filter(n => T[n].tax > 0);
 
 // ================================================================
@@ -1319,11 +1365,31 @@ function applyNonCombatMove(mv) {
     ['F','A','C','S'].forEach(k => {
         G.board[mv.from].units[k] = Math.max(0, (G.board[mv.from].units[k]||0) - (mu[k]||0));
     });
+    const wasNeutral = (G.board[mv.to].owner === 'neutral');
     G.board[mv.to].owner = mv.color;
     ['F','A','C','S'].forEach(k => {
         G.board[mv.to].units[k] = (G.board[mv.to].units[k]||0) + (mu[k]||0);
     });
-    addLog(`Board: ${mv.color} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}.`);
+    // Award crown for capturing a city (any non-combat move into a neutral city)
+    if (wasNeutral && (T[mv.to]?.tax||0) > 0) {
+        const cv = crownValueOfCity(mv.to);
+        if (cv > 0) {
+            G.crowns[mv.color] = (G.crowns[mv.color]||0) + cv;
+            addLog(`${cName(mv.color)} captures ${cityLabel(mv.to)}. +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[mv.color]} total)`);
+            checkWin(mv.color);
+        } else {
+            addLog(`Board: ${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}.`);
+        }
+        // Assign shield token for new city owner
+        const sk = shieldKeyForTerr(mv.to);
+        if (sk) {
+            G.shields = G.shields || {};
+            G.shields[sk] = mv.color;
+            applyShieldBonus(sk, mv.color, 'capture');
+        }
+    } else {
+        addLog(`Board: ${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}.`);
+    }
 }
 function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingColor) {
     if (!G.board[from] || !G.board[to]) return;
@@ -1399,11 +1465,11 @@ function renderWelcome(el) {
         • For each automaton turn, this app reveals their card and shows a <b>numbered checklist</b> of exactly what to move.<br>
         • Tap each step as you carry it out on the board. When all steps are done, tap <b>Complete Turn</b>.<br>
         • The app handles turn order, coin tracking, and deck reshuffling automatically.</div>
-        <div class="info-box"><b>You win</b> by reaching 7 Crown tokens first — same as the base game. Crown counts are tracked in the player bar.</div>
+        <div class="info-box"><b>You win</b> by reaching 7 Crowns first. There are two crown components on the board:<br>• <b>Crown miniatures</b> — placed inside cities on the map. They mark that city as a crown city (worth 1 Crown when captured). They stay in the city permanently.<br>• <b>Colored banners on the Crown Track</b> — track your total crown score. Move your banner up when you capture a crown city or buy a Crown Card. This app tracks your banner position in the player bar.</div>
         <div class="info-box" style="border-color:var(--gold);background:rgba(200,149,42,0.08);">
             <b>⚠ Before you begin:</b><br>
             • <b>Kingdom Missions variant is NOT used.</b> Crown Cards stay in the deck face-down — when purchased they give 1 Crown exactly as printed. Do NOT use the mission side.<br>
-            • All players start with <b>2 Crown tokens</b> (Rome starter gets 3 due to shield).
+            • Each player starts with their banner at <b>2 on the Crown Track</b> and places <b>1 Crown miniature in each of their 2 starting cities</b>. (Exception: if you start with Rome, your banner starts at 3 — the extra Crown comes from Rome's Shield token, not an extra miniature on the board.)
         </div>
         <button class="btn-primary" onclick="wizNext()">BEGIN SETUP →</button>`;
 }
@@ -1443,7 +1509,7 @@ function renderCapCard(color, capital, isPrimary) {
     const adjNote = capital.adjOptions.length > 1
         ? `<div class="cap-note">If ${adj.name} is taken: try ${capital.adjOptions.map(a=>a.name).join(' → ')} in order.</div>` : '';
     const extra = isPrimary
-        ? `<br>🏰 <b>1 Castle</b> on ${capital.name}<br>👑 <b>2 Crown tokens</b> on ${capital.name}`
+        ? `<br>🏰 <b>1 Castle</b> on ${capital.name}${capital.city && capital.city !== capital.name ? ' (' + capital.city + ')' : ''}<br>👑 Place <b>1 Crown miniature</b> inside ${capital.city || capital.name} on the map<br>📍 Start banner at <b>2</b> on Crown Track (2nd miniature goes in secondary city at next step)`
         : `<br><span style="color:#888;font-style:italic;">No castle on secondary capital.</span>`;
     return `<div class="capital-card">
         <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[color]}"></div>
@@ -1504,10 +1570,17 @@ function renderPlayerCapital(el) {
     const available = CAPITALS.filter(c=>!taken.has(c.name));
     el.innerHTML = `
         <div class="setup-title">Your Capital</div>
-        <div class="setup-sub">Choose one of the remaining capitals for <b>${(S.playerColor||'').toUpperCase()}</b>. Place your units, Castle, and 2 Crowns.</div>
+        <div class="setup-sub">Choose one of the remaining capitals for <b>${(S.playerColor||'').toUpperCase()}</b>. Place your units and Castle, then place <b>1 Crown miniature</b> inside this city on the map.</div>
         <div class="cap-chooser">
-            ${available.map(cap=>`<div class="cap-btn ${S.playerCapital&&S.playerCapital.name===cap.name?'selected':''}" onclick="pickPlayerCap('${cap.name}')">
-                ${cap.name}<div class="cap-tax">Tax: ${cap.tax}</div></div>`).join('')}
+            ${available.map(cap=>{
+                const sk_ = shieldKeyForTerr(cap.name);
+                const citySpan_ = cap.city && cap.city !== cap.name
+                    ? '<br><span style="font-size:0.72em;font-weight:400;' + (sk_ ? 'color:#c8960c;font-weight:700;' : 'color:var(--ink-light);') + '">' + cap.city + (sk_ ? ' 🛡' : '') + '</span>'
+                    : '';
+                const label = cap.name + citySpan_;
+                const sel = S.playerCapital && S.playerCapital.name === cap.name ? 'selected' : '';
+                return `<div class="cap-btn ${sel}" onclick="pickPlayerCap('${cap.name}')">${label}<div class="cap-tax">Tax: ${cap.tax}</div></div>`;
+            }).join('')}
         </div>
         <div id="player-cap-detail">${S.playerCapital ? renderPlayerCapDetail() : ''}</div>
         <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
@@ -1522,7 +1595,7 @@ function renderPlayerCapDetail() {
         <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[S.playerColor]}"></div>
         <div class="cap-name">${(S.playerColor||'').toUpperCase()} — ${cap.name}</div></div>
         <div class="cap-body">
-            🏰 <b>1 Castle</b> on ${cap.name} &nbsp; 👑 <b>2 Crown tokens</b><br><br>
+            🏰 <b>1 Castle</b> on ${cap.name}${cap.city && cap.city !== cap.name ? ' (' + cap.city + ')' : ''}<br>👑 Place <b>1 Crown miniature</b> inside ${cap.city || cap.name} on the map — your 2nd miniature goes in your secondary city (assigned next step)<br>🏅 Start your banner at <b>2 on the Crown Track</b><br><br>
             <b>How many Footmen at ${cap.name}?</b><br>
             <div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
                 <button class="ub" style="width:28px;height:28px;font-size:16px" onclick="changePlayerUnits(-1)">−</button>
@@ -1577,7 +1650,7 @@ function renderSecondary(el) {
                 🏛 <b>Secondary:</b> ${d.secondary?.name||'?'} (Tax ${d.secondary?.tax||'?'}) <i>— no castle</i><br>
                 💰 <b>Starting coins: 5 + ${d.primary?.tax||0} + ${d.secondary?.tax||0} = <span style="color:var(--accent);font-size:1.1em;">${d.total}</span></b>
             </div></div>`).join('')}
-        <div class="info-box">Place the secondary capital units on the board (same counts as shown in Step 3), set each player's coin count, and give each player their 10 Footmen, 4 Archers, 4 Cavalry, 2 Siege Engines for reserves.</div>
+        <div class="info-box">Place secondary capital units on the board (same counts as shown in Step 3), but <b>no castle</b>. Place <b>1 Crown miniature inside each player's secondary city</b> on the map. Set each player's banner to <b>2 on the Crown Track</b>. Give each player their reserve: 10 Footmen, 4 Archers, 4 Cavalry, 2 Siege Engines, and their starting coins as shown above.</div>
         <button class="btn-primary" onclick="launchGame()">✓ SETUP COMPLETE — START GAME →</button>
         <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
 }
@@ -1594,14 +1667,16 @@ function renderReady(el) { launchGame(); }
 // trigger: 'tax'|'spend'|'battle_win'|'expand'|'always'|'expand_spend'
 // crownBonus: extra crowns when captured (Rome only)
 const CITY_SHIELDS = {
-    "Paris":          { trigger:'tax',          crownBonus:0, reminder:"🛡 PARIS SHIELD: You taxed Paris — place 1 Cavalry + 1 Footman in Paris for FREE." },
-    "Stockholm":      { trigger:'battle_win',   crownBonus:0, reminder:"🛡 STOCKHOLM SHIELD: You won as attacker — collect 4 silver coins from the reserve." },
-    "Rome":           { trigger:'always',       crownBonus:1, reminder:"🛡 ROME SHIELD: Rome is worth 2 crowns (already applied)." },
-    "Berlin":         { trigger:'expand_spend', crownBonus:0, reminder:"🛡 BERLIN SHIELD: After Expanding, you may also Maneuver this action. Also: Castles cost 3 fewer coins." },
-    "Constantinople": { trigger:'spend',        crownBonus:0, reminder:"🛡 CONSTANTINOPLE SHIELD: You recruited a Siege Engine — place 4 Footmen with it for FREE." },
-    "Kiev":           { trigger:'spend',        crownBonus:0, reminder:"🛡 KIEV SHIELD: You may recruit army units into any non-city territory connected to Kiev by a supply line." },
-    "Madrid":         { trigger:'tax',          crownBonus:0, reminder:"🛡 MADRID SHIELD: You taxed Madrid — place 4 Footmen in Madrid for FREE." },
-    "London":         { trigger:'tax',          crownBonus:0, reminder:"🛡 LONDON SHIELD: You taxed London — place 2 Archers in London for FREE." },
+    // Keys are CITY names (for G.shields lookups and display)
+    // terr: corresponding territory key in T[] and G.board
+    "Paris":          { terr:"France",        trigger:'tax',          crownBonus:0, reminder:"🛡 PARIS SHIELD: You taxed Paris — place 1 Cavalry + 1 Footman in France (Paris) for FREE." },
+    "Stockholm":      { terr:"Sweden",        trigger:'battle_win',   crownBonus:0, reminder:"🛡 STOCKHOLM SHIELD: You won as attacker — collect 4 silver coins from the reserve." },
+    "Rome":           { terr:"Rome",          trigger:'always',       crownBonus:1, reminder:"🛡 ROME SHIELD: Rome is worth 2 crowns (already applied)." },
+    "Berlin":         { terr:"Saxony",        trigger:'expand_spend', crownBonus:0, reminder:"🛡 BERLIN SHIELD: After Expanding, you may also Maneuver this action. Also: Castles cost 3 fewer coins." },
+    "Constantinople": { terr:"Turkey",        trigger:'spend',        crownBonus:0, reminder:"🛡 CONSTANTINOPLE SHIELD: You recruited a Siege Engine — place 4 Footmen with it for FREE." },
+    "Kiev":           { terr:"Rusland",       trigger:'spend',        crownBonus:0, reminder:"🛡 KIEV SHIELD: You may recruit army units into any non-city territory connected to Kiev by a supply line." },
+    "Madrid":         { terr:"León Castile",  trigger:'tax',          crownBonus:0, reminder:"🛡 MADRID SHIELD: You taxed Madrid — place 4 Footmen in León Castile (Madrid) for FREE." },
+    "London":         { terr:"England",       trigger:'tax',          crownBonus:0, reminder:"🛡 LONDON SHIELD: You taxed London — place 2 Archers in England (London) for FREE." },
 };
 
 function showShieldReminder(city, color) {
@@ -1626,35 +1701,33 @@ function applyShieldBonus(city, color, context) {
     const sh = CITY_SHIELDS[city];
     if (!sh) return;
 
+    // Look up territory for this city (shield key → territory board key)
+    const _sh = CITY_SHIELDS[city];
+    const _terr = _sh?.terr || city; // "France" for Paris, "Turkey" for Constantinople, etc.
+
     if (city === 'Paris' && context === 'tax') {
-        // Free 1 Cavalry + 1 Footman in Paris
-        G.board['Paris'].units.C = (G.board['Paris'].units.C||0) + 1;
-        G.board['Paris'].units.F = (G.board['Paris'].units.F||0) + 1;
-        addLog(`🛡 Paris shield: ${cName(color)} receives 1 free Cavalry + 1 Footman in Paris.`);
+        G.board[_terr].units.C = (G.board[_terr].units.C||0) + 1;
+        G.board[_terr].units.F = (G.board[_terr].units.F||0) + 1;
+        addLog(`🛡 Paris shield: ${cName(color)} receives 1 free Cavalry + 1 Footman in France (Paris).`);
     } else if (city === 'Madrid' && context === 'tax') {
-        // Free 4 Footmen in Madrid
-        G.board['Madrid'].units.F = (G.board['Madrid'].units.F||0) + 4;
-        addLog(`🛡 Madrid shield: ${cName(color)} receives 4 free Footmen in Madrid.`);
+        G.board[_terr].units.F = (G.board[_terr].units.F||0) + 4;
+        addLog(`🛡 Madrid shield: ${cName(color)} receives 4 free Footmen in León Castile (Madrid).`);
     } else if (city === 'London' && context === 'tax') {
-        // Free 2 Archers in London
-        G.board['London'].units.A = (G.board['London'].units.A||0) + 2;
-        addLog(`🛡 London shield: ${cName(color)} receives 2 free Archers in London.`);
+        G.board[_terr].units.A = (G.board[_terr].units.A||0) + 2;
+        addLog(`🛡 London shield: ${cName(color)} receives 2 free Archers in England (London).`);
     } else if (city === 'Constantinople' && context === 'siege_buy') {
-        // Free 4 Footmen placed with the siege engine
-        // Find the territory where the siege engine was just placed
+        // Free 4 Footmen placed with the siege engine (find territory with freshest siege engine)
         const siegeTerr = ownedBy(color).filter(n => G.board[n].units.S > 0)
             .sort((a,b) => G.board[b].units.S - G.board[a].units.S)[0];
         if (siegeTerr) {
             G.board[siegeTerr].units.F = (G.board[siegeTerr].units.F||0) + 4;
-            addLog(`🛡 Constantinople shield: ${cName(color)} receives 4 free Footmen at ${siegeTerr}.`);
+            addLog(`🛡 Constantinople shield: ${cName(color)} receives 4 free Footmen at ${cityLabel(siegeTerr)}.`);
         }
     } else if (city === 'Kiev' && context === 'spend') {
-        // May recruit into non-city territory connected via supply line
-        // For automa: place 2 extra Footmen in the highest-unit non-city territory connected to Kiev
-        const kievOwner = G.board['Kiev']?.owner;
-        if (kievOwner !== color) return;
-        const visited = new Set(['Kiev']);
-        const queue = ['Kiev'];
+        // Automa: place 2 extra Footmen in highest-unit non-city territory connected to Rusland (Kiev)
+        if (G.board[_terr]?.owner !== color) return;
+        const visited = new Set([_terr]);
+        const queue = [_terr];
         let bestNonCity = null, bestCount = -1;
         while (queue.length) {
             const cur = queue.shift();
@@ -1700,11 +1773,12 @@ function launchGame() {
     ['orange','green','purple','blue'].forEach(c => { crowns[c] = 2; }); // all start with 2 crowns
     // Apply shield ownership and crown bonuses for starting capitals
     const allCaps = { ...Object.fromEntries(autos.map(a=>[a, S.autoCapitals[a]?.name])), [S.playerColor]: S.playerCapital?.name };
-    Object.entries(allCaps).forEach(([c, cityName]) => {
-        if (cityName && CITY_SHIELDS[cityName]) {
-            shields[cityName] = c; // assign shield to starting owner
-            if (CITY_SHIELDS[cityName].crownBonus) {
-                crowns[c] += CITY_SHIELDS[cityName].crownBonus;
+    Object.entries(allCaps).forEach(([c, terrName]) => {
+        const sk = shieldKeyForTerr(terrName);
+        if (sk) {
+            shields[sk] = c;                         // key is always city name
+            if (CITY_SHIELDS[sk].crownBonus) {
+                crowns[c] += CITY_SHIELDS[sk].crownBonus;
             }
         }
     });
@@ -2709,7 +2783,7 @@ function renderBEList(bs, color) {
         const clickable = canMove && !hasMoved;
         return `<li class="be-terr-item ${rowCls}" onclick="${clickable?`bePickFrom('${name}')`:''}" >
             <div>
-                <div class="bt-name">${name}</div>
+                <div class="bt-name">${terrLabel(name)}</div>
                 <div class="bt-sub">${castleStr}${taxStr}${unitSummary}</div>
             </div>
             <div style="text-align:right">
@@ -3711,23 +3785,24 @@ function humanExpandToOpts(from) {
     const hasSiege = (G.board[from]?.units?.S||0) > 0;
     return (T[from]?.adj||[]).filter(n => {
         if (!G.board[n]) return false;
-        if ((T[n]?.tax||0) === 0) return false;      // must be a city
-        if (G.board[n].owner === pc) return false;    // can't expand into own city
-        if (G.board[n].castle && !hasSiege) return false;             // any castle requires a siege engine
+        if (G.board[n].owner === pc) return false;          // can't expand into own territory
+        // Enemy-held castles require siege engine to attack
+        if (G.board[n].owner !== 'neutral' && G.board[n].castle && !hasSiege) return false;
         return true;
     }).map(n => ({
         name:n, owner:G.board[n].owner||'neutral', tax:T[n]?.tax||0,
+        isCity: (T[n]?.tax||0) > 0,
         units:totalUnitCount(n), hasCastle:!!G.board[n].castle, via:null,
-        needsSiege: G.board[n].castle && !hasSiege
+        needsSiege: G.board[n].owner !== 'neutral' && G.board[n].castle && !hasSiege
     }));
 }
 function humanSplitExpandToOpts(from) {
     const pc = S.playerColor, seen = new Set(), results = [];
     const hasSiege = (G.board[from]?.units?.S||0) > 0;
     function canTarget(n) {
-        if (!G.board[n] || (T[n]?.tax||0)===0) return false;      // city only
-        if (G.board[n].owner === pc) return false;                  // not own city
-        if (G.board[n].castle && !hasSiege) return false;             // any castle requires a siege engine
+        if (!G.board[n]) return false;
+        if (G.board[n].owner === pc) return false;                         // not own territory
+        if (G.board[n].owner !== 'neutral' && G.board[n].castle && !hasSiege) return false; // enemy castle needs siege
         return true;
     }
     for (const adj of (T[from]?.adj||[])) {
@@ -3804,7 +3879,8 @@ function applyHumanMove(from, to, moving) {
         const cv = crownValueOfCity(to);
         if (cv>0) { G.crowns[pc]=(G.crowns[pc]||0)+cv; checkWin(pc); }
         const crownNote = cv>0 ? ` +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[pc]} total)` : '';
-        if (CITY_SHIELDS[to]) { G.shields=G.shields||{}; G.shields[to]=pc; }
+        const _sk = shieldKeyForTerr(to);
+        if (_sk) { G.shields=G.shields||{}; G.shields[_sk]=pc; }
         return {type:cv>0?'capture_crown':'capture', crowns:cv, outcome:`Captured ${to}!${crownNote}`, boardReminder:`Move <b>${unitStr(moving)}</b> to <b>${to}</b>. Change ownership flag to yours.${crownNote}`};
     } else {
         if (!G.roundCombats) G.roundCombats=[];
@@ -3986,16 +4062,18 @@ function hfSelect(idx, choice) {
         const yld = taxYield(pc, city);
         G.coins[pc] = (G.coins[pc]||0) + yld;
         step.state='done';
-        step.summary=`Taxed ${city}: +${yld} coins (total now ${G.coins[pc]}).`;
+        step.summary=`Taxed ${cityLabel(city)}: +${yld} coins (total now ${G.coins[pc]}).`;
         // Shield bonus: auto-apply
-        const sh = CITY_SHIELDS[city];
-        if (sh && sh.trigger==='tax' && G.shields?.[city]===pc) {
+        const _csk = shieldKeyForTerr(city);
+        const sh = _csk ? CITY_SHIELDS[_csk] : null;
+        if (sh && sh.trigger==='tax' && G.shields?.[_csk]===pc) {
             let added = {};
-            if (city==='Paris')  { G.board[city].units.C++; G.board[city].units.F++; added={C:1,F:1}; }
-            if (city==='Madrid') { G.board[city].units.F+=4;  added={F:4}; }
-            if (city==='London') { G.board[city].units.A+=2;  added={A:2}; }
+            // Apply to territory (city is territory name like "France", shield key is "Paris")
+            if (_csk==='Paris')  { G.board[city].units.C++; G.board[city].units.F++; added={C:1,F:1}; }
+            if (_csk==='Madrid') { G.board[city].units.F+=4; added={F:4}; }
+            if (_csk==='London') { G.board[city].units.A+=2; added={A:2}; }
             if (Object.keys(added).length)
-                step.boardReminder=`🛡 ${sh.reminder}<br><b>Place ${unitStr(added)} in ${city} on your physical board.</b>`;
+                step.boardReminder=`🛡 ${sh.reminder}<br><b>Place ${unitStr(added)} in ${cityLabel(city)} on your physical board.</b>`;
         }
         render();
     }
@@ -4066,10 +4144,13 @@ function renderFlowStepBody(step, idx) {
             if (!cities.length) return `<p style="color:#aaa;font-size:0.83em;">You own no cities to tax.</p>`;
             const btns = cities.map(c => {
                 const yld = taxYield(pc, c.name);
-                const sh = CITY_SHIELDS[c.name];
-                const shieldNote = (sh && sh.trigger==='tax' && G.shields?.[c.name]===pc) ? ' 🛡' : '';
+                const _tsk = shieldKeyForTerr(c.name);
+                const sh = _tsk ? CITY_SHIELDS[_tsk] : null;
+                const shieldNote = (sh && sh.trigger==='tax' && G.shields?.[_tsk]===pc) ? ' 🛡' : '';
+                const _dispName = T[c.name]?.city && T[c.name].city !== c.name
+                    ? `${c.name} <span style="font-weight:400;font-size:0.88em;">(${T[c.name].city})</span>` : c.name;
                 return `<div class="hcp-card" onclick="hfSelect(${idx},'${c.name}')">
-                    <b>${c.name}${c.hasCastle?' 🏰':''}${shieldNote}</b>
+                    <b>${_dispName}${c.hasCastle?' 🏰':''}${shieldNote}</b>
                     <div class="hcp-count">Tax ${c.tax} · ${c.units} units · <b>+${yld} coins</b></div>
                 </div>`;
             }).join('');
@@ -4131,7 +4212,7 @@ function renderFlowStepBody(step, idx) {
 
                     return `<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #f0ede8;background:${bgColor};border-radius:4px;margin-bottom:2px;">
                         <div style="flex:1;min-width:0;">
-                            <span style="font-size:0.85em;font-weight:700;">${terr}</span>
+                            <span style="font-size:0.85em;font-weight:700;">${terrLabel(terr)}</span>
                             <span style="font-size:0.72em;color:var(--ink-light);margin-left:4px;">${isCity?'city · Tax '+T[terr].tax:'non-city'} · ${currUnits} units${hasCastle?' 🏰':''}</span>
                         </div>
                         <div style="display:flex;align-items:center;flex-wrap:wrap;">${controls}</div>
@@ -4208,7 +4289,7 @@ function renderFlowStepBody(step, idx) {
             const btns = cities.map(c => {
                 const count = c.hasCastle ? 4 : 3;
                 return `<div class="hcp-card" onclick="hfSelect(${idx},'${c.name}')">
-                    <b>${c.name}${c.hasCastle?' 🏰':''}</b>
+                    <b>${terrLabel(c.name)}${c.hasCastle?' 🏰':''}</b>
                     <div class="hcp-count">+${count} Footmen · currently ${c.units} units → will have ${c.units+count}</div>
                 </div>`;
             }).join('');
@@ -4235,7 +4316,7 @@ function renderFlowStepBody(step, idx) {
                     const mov = totalUnitCount(o.name)-1;
                     const u = unitStr(G.board[o.name].units);
                     return `<div class="hcp-card" onclick="hfSelect(${idx},'${o.name}')">
-                        <b>${o.name}${(T[o.name]?.tax>0)?' 🏙':''}</b>
+                        <b>${terrLabel(o.name)}</b>
                         <div class="hcp-count">${u} · ${mov} can move</div>
                     </div>`;
                 }).join('');
@@ -4267,13 +4348,12 @@ function renderFlowStepBody(step, idx) {
                     const borderColor = isMine ? '#1a7a3c' : isEnemy ? COLOR_HEX[owner]||'#c0392b' : '#888';
                     const ownerLabel = isMine ? 'yours' : owner==='neutral' ? 'neutral' : owner.charAt(0).toUpperCase()+owner.slice(1);
                     const units = totalUnitCount(name);
-                    const cityIcon = (T[name]?.tax>0) ? '🏙 ' : '';
                     const castleIcon = G.board[name]?.castle ? ' 🏰' : '';
                     const viaNote = o.via ? `<span style="font-size:0.78em;"> via ${o.via}</span>` : '';
                     const hopsNote = o.hops ? ` (${o.hops} step${o.hops>1?'s':''})` : '';
                     const siegeWarn = isEnemy&&G.board[name]?.castle&&!((G.board[from]?.units?.S||0)>0) ? ' ⚠ needs Siege Engine' : '';
                     return `<div class="hcp-card" onclick="hfSelectTo(${idx},'${name}')" style="border-left:3px solid ${borderColor}">
-                        <b>${cityIcon}${name}${castleIcon}</b>
+                        <b>${terrLabel(name)}</b>${castleIcon ? ' 🏰' : ''}
                         <div class="hcp-count" style="color:${borderColor}">${ownerLabel}${units>0?' · '+units+' units':''}${hopsNote}${viaNote}${siegeWarn}</div>
                     </div>`;
                 }).join('');
@@ -5069,15 +5149,16 @@ function applyBattleResult(b, result) {
             addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}.`);
         }
         // Assign shield token and fire reminder
-        if (CITY_SHIELDS[b.to]) {
+        const _bsk = shieldKeyForTerr(b.to);
+        if (_bsk) {
             if (!G.shields) G.shields = {};
-            G.shields[b.to] = b.color;
-            addLog('🛡 ' + cName(b.color) + ' gains the ' + b.to + ' shield.');
-            showShieldReminder(b.to, b.color);
+            G.shields[_bsk] = b.color;
+            addLog('🛡 ' + cName(b.color) + ' gains the ' + cityLabel(b.to) + ' shield.');
+            showShieldReminder(_bsk, b.color);
         }
-        // Stockholm shield
-        showShieldReminder('Stockholm', b.color);   // toast for human
-        applyShieldBonus('Stockholm', b.color, 'battle_win');  // auto-apply for automa
+        // Stockholm shield (attacker wins any battle)
+        showShieldReminder('Stockholm', b.color);
+        applyShieldBonus('Stockholm', b.color, 'battle_win');
     } else if (result.winner === 'defender') {
         // Defender holds — attacking units destroyed (already gone from source for human attacks)
         if (b.from !== '__editor__' && !b._prededucted) {
