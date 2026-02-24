@@ -1190,7 +1190,9 @@ function decideSiege(color) {
     let candidates = [];
     for (const t of withSiege) {
         for (const adj of T[t].adj) {
-            if (G.board[adj]?.owner && G.board[adj].owner !== color && G.board[adj].owner !== 'neutral') {
+            // Siege Assault only targets enemy-held castles (neutral castles can be entered without siege)
+            if (G.board[adj]?.owner && G.board[adj].owner !== color && G.board[adj].owner !== 'neutral'
+                    && G.board[adj].castle) {
                 candidates.push({ from:t, to:adj, defenders: totalUnitCount(adj), defOwner: G.board[adj].owner });
             }
         }
@@ -2071,7 +2073,7 @@ function toggleStep(i) {
                 // Tax shield: fires when tax step is checked (delta > 0 = we just collected tax)
                 if (delta > 0) {
                     const taxCity = G.pendingMoves?.find(m=>m.type==='tax')?.city;
-                    if (taxCity) applyShieldBonus(taxCity, color, 'tax');
+                    if (taxCity) applyShieldBonus(shieldKeyForTerr(taxCity) || taxCity, color, 'tax');
                 }
             } else {
                 G.coins[color] = Math.max(0, G.coins[color] - delta);
@@ -2230,8 +2232,9 @@ function generateSteps(card, color, coins) {
             steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check this step to automatically add ${taxAmt} coins to ${C}'s total.
                 <span class="rule-note">Yield = city's own Tax value + 1 per connected non-urban territory + Tax value of connected cities ${C} owns (all connected through ${C}'s own supply line).</span>`);
             // Shield reminders for tax-trigger cities
-            if (CITY_SHIELDS[taxCity]?.trigger === 'tax' && G.shields?.[taxCity] === color) {
-                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[taxCity].reminder}</div>`);
+            const _taxSK1 = shieldKeyForTerr(taxCity);
+            if (_taxSK1 && CITY_SHIELDS[_taxSK1]?.trigger === 'tax' && G.shields?.[_taxSK1] === color) {
+                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[_taxSK1].reminder}</div>`);
             }
         } else {
             const { cost, items } = getBestSpend(coins, color);
@@ -2431,8 +2434,9 @@ function generateSteps(card, color, coins) {
             G._stepCoinEffects[4] = taxAmt; // step index 4 (after 0=kingme,1=note,2=divider,3=header)
             steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check to automatically add ${taxAmt} coins.
                 <span class="rule-note">Yield = Tax value + 1 per connected non-urban territory + Tax of connected owned cities.</span>`);
-            if (CITY_SHIELDS[taxCity]?.trigger === 'tax' && G.shields?.[taxCity] === color) {
-                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[taxCity].reminder}</div>`);
+            const _taxSK2 = shieldKeyForTerr(taxCity);
+            if (_taxSK2 && CITY_SHIELDS[_taxSK2]?.trigger === 'tax' && G.shields?.[_taxSK2] === color) {
+                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[_taxSK2].reminder}</div>`);
             }
         } else {
             const { cost, items } = getBestSpend(coins, color);
