@@ -1508,8 +1508,7 @@ function resolveAdj(capital) {
 
 function renderCapCard(color, capital, isPrimary) {
     const adj = capital._adj || capital.adjOptions[0];
-    const adjNote = capital.adjOptions.length > 1
-        ? `<div class="cap-note">If ${adj.name} is taken: try ${capital.adjOptions.map(a=>a.name).join(' → ')} in order.</div>` : '';
+
     const extra = isPrimary
         ? `<br>🏰 <b>1 Castle</b> on ${capital.name}${capital.city && capital.city !== capital.name ? ' (' + capital.city + ')' : ''}<br>👑 Place <b>1 Crown miniature</b> inside ${capital.city || capital.name} on the map<br>📍 Start banner at <b>2</b> on Crown Track (2nd miniature goes in secondary city at next step)`
         : `<br><span style="color:#888;font-style:italic;">No castle on secondary capital.</span>`;
@@ -1519,7 +1518,7 @@ function renderCapCard(color, capital, isPrimary) {
         <div class="cap-body">
             📍 <b>${capital.name}:</b> place <b>${capital.units} Footmen</b><br>
             📍 <b>${adj.name}:</b> place <b>${adj.units} Footmen</b>
-            ${adjNote}${extra}
+            ${extra}
         </div></div>`;
 }
 
@@ -4096,12 +4095,67 @@ function hfSelect(idx, choice) {
 }
 
 // hfSelectTo: picks the TO territory for compound steps
-function hfSelectTo(idx, to) {
+// ── Unit-count picker: destination chosen, now pick how many to move ────────
+function hfPickDest(idx, to) {
+    const step = G.humanFlow[idx];
+    if (!step) return;
+    const from = step.from;
+    const isSiege = step.type === 'siege';
+    const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
+    const totalAvail = totalUnitCount(from);
+    const maxMove = totalAvail - 1; // must leave 1 behind
+
+    // Default: move everything movable (matching previous behaviour as starting point)
+    const defaultUnits = isSiege ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
+
+    step.to = to;
+    step.pendingUnits = { F: defaultUnits.F||0, A: defaultUnits.A||0, C: defaultUnits.C||0, S: defaultUnits.S||0 };
+    step.state = 'pick_count';
+    renderHumanTurn();
+}
+
+function hfAdjUnit(idx, k, delta) {
+    const step = G.humanFlow[idx];
+    if (!step || !step.pendingUnits) return;
+    const from = step.from;
+    const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
+    const totalAvail = totalUnitCount(from);
+    const maxMove = totalAvail - 1;
+    const pu = step.pendingUnits;
+    const totalMoving = (pu.F||0)+(pu.A||0)+(pu.C||0)+(pu.S||0);
+    const newVal = (pu[k]||0) + delta;
+    if (newVal < 0 || newVal > (avail[k]||0)) return;
+    if (delta > 0 && totalMoving >= maxMove) return;
+    pu[k] = newVal;
+    renderHumanTurn();
+}
+
+function hfUndoTo(idx) {
+    // Go back to destination picker
+    const step = G.humanFlow[idx];
+    if (!step) return;
+    step.to = null;
+    step.pendingUnits = null;
+    step.state = 'pick_to';
+    renderHumanTurn();
+}
+
+function hfConfirmMove(idx) {
+    const step = G.humanFlow[idx];
+    if (!step || !step.pendingUnits) return;
+    const from = step.from;
+    const to   = step.to;
+    const moving = { ...step.pendingUnits };
+    hfSelectTo(idx, to, moving);
+}
+
+function hfSelectTo(idx, to, moving) {
     const pc = S.playerColor;
     const step = G.humanFlow[idx];
     if (!step) return;
     const from = step.from;
-    const moving = step.type==='siege' ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
+    // moving may be passed explicitly from hfConfirmMove (player-chosen counts)
+    if (!moving) moving = step.type==='siege' ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
     const result = applyHumanMove(from, to, moving);
     step.state='done'; step.to=to;
     step.summary=`${from} → ${to} (${unitStr(moving)}). ${result.outcome}`;
@@ -4305,6 +4359,57 @@ function renderFlowStepBody(step, idx) {
         case 'split_expand':
         case 'maneuver':
         case 'siege': {
+            // pick_count: destination chosen, player adjusting unit quantities
+            if (step.state === 'pick_count') {
+                const from = step.from;
+                const to   = step.to;
+                const pu   = step.pendingUnits || {};
+                const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
+                const totalAvail = totalUnitCount(from);
+                const maxMove = totalAvail - 1; // must leave at least 1
+                const totalMoving = (pu.F||0)+(pu.A||0)+(pu.C||0)+(pu.S||0);
+                const isSiege = step.type === 'siege';
+
+                const owner = G.board[to]?.owner||'neutral';
+                const isMine = owner === pc;
+                const isEnemy = owner !== 'neutral' && !isMine;
+                const borderColor = isMine ? '#1a7a3c' : isEnemy ? COLOR_HEX[owner]||'#c0392b' : '#888';
+                const ownerLabel = isMine ? 'yours' : owner==='neutral' ? 'neutral' : owner.charAt(0).toUpperCase()+owner.slice(1);
+
+                const unitRows = ['C','A','F','S'].map(k => {
+                    const av = avail[k]||0;
+                    if (av === 0) return null;
+                    const moving = pu[k]||0;
+                    // Siege engine: must always include it for siege moves
+                    const locked = isSiege && k==='S';
+                    const canAdd = moving < av && totalMoving < maxMove && !locked;
+                    const canSub = moving > 0 && !(isSiege && k==='S' && moving <= 1);
+                    const label = k==='C'?'Cavalry':k==='A'?'Archers':k==='F'?'Footmen':'Siege Engine';
+                    return `<div class="unit-type-row">
+                        <div><div class="ut-label">${label}</div><div class="ut-avail">${av} available</div></div>
+                        <div class="ut-stepper">
+                            <button class="ut-btn" onclick="hfAdjUnit(${idx},'${k}',-1)" ${canSub?'':'disabled'}>−</button>
+                            <span class="ut-val">${moving}${locked?' 🔒':''}</span>
+                            <button class="ut-btn" onclick="hfAdjUnit(${idx},'${k}',1)" ${canAdd?'':'disabled'}>+</button>
+                        </div>
+                    </div>`;
+                }).filter(Boolean).join('');
+
+                const canConfirm = totalMoving >= 1;
+                return `<div style="font-size:0.8em;color:var(--ink-light);margin-bottom:6px;">
+                    How many units to move from <b>${from}</b> to
+                    <span style="border-left:3px solid ${borderColor};padding-left:5px;"><b>${terrLabel(to)}</b>
+                    <span style="color:${borderColor};font-size:0.82em;"> — ${ownerLabel}</span></span>?
+                    <span style="color:#888;"> (must leave at least 1 behind)</span>
+                </div>
+                <div class="unit-type-grid" style="margin-bottom:10px;">${unitRows}</div>
+                <div style="font-size:0.8em;color:var(--ink-light);margin-bottom:8px;">Moving: <b>${totalMoving}</b> of ${maxMove} max</div>
+                <button class="be-confirm-btn" onclick="hfConfirmMove(${idx})" ${canConfirm?'':'disabled'}>
+                    ✓ Move ${totalMoving} unit${totalMoving!==1?'s':''} → ${to}
+                </button>
+                <button class="btn-retreat" style="margin-top:6px;" onclick="hfUndoTo(${idx})">← Change destination</button>`;
+            }
+
             if (step.state === 'pick_from') {
                 const opts = step.type==='siege' ? humanSiegeFromOpts() : humanMoveFromOpts();
                 if (!opts.length) {
@@ -4341,9 +4446,10 @@ function renderFlowStepBody(step, idx) {
                     return `<p style="font-size:0.83em;color:#aaa;">${msg}</p>
                         <button class="btn-retreat" onclick="hfUndo(${idx})">← Choose different territory</button>`;
                 }
+                const maxMovable = totalUnitCount(from) - 1;
                 const lbl = step.type==='maneuver'
-                    ? `Maneuver <b>${unitStr(moving)}</b> from <b>${from}</b> to: <span style="font-size:0.78em;color:var(--ink-light)">(green=yours, grey=friendly, red=enemy)</span>`
-                    : `Move <b>${unitStr(moving)}</b> from <b>${from}</b> to:`;
+                    ? `Maneuver from <b>${from}</b> to: <span style="font-size:0.78em;color:var(--ink-light)">(up to ${maxMovable} units · green=yours, grey=friendly, red=enemy)</span>`
+                    : `Move from <b>${from}</b> to: <span style="font-size:0.78em;color:var(--ink-light)">(up to ${maxMovable} units)</span>`;
                 const btns = toOpts.map(o => {
                     const name = o.name;
                     const owner = G.board[name]?.owner||'neutral';
@@ -4356,7 +4462,7 @@ function renderFlowStepBody(step, idx) {
                     const viaNote = o.via ? `<span style="font-size:0.78em;"> via ${o.via}</span>` : '';
                     const hopsNote = o.hops ? ` (${o.hops} step${o.hops>1?'s':''})` : '';
                     const siegeWarn = isEnemy&&G.board[name]?.castle&&!((G.board[from]?.units?.S||0)>0) ? ' ⚠ needs Siege Engine' : '';
-                    return `<div class="hcp-card" onclick="hfSelectTo(${idx},'${name}')" style="border-left:3px solid ${borderColor}">
+                    return `<div class="hcp-card" onclick="hfPickDest(${idx},'${name}')" style="border-left:3px solid ${borderColor}">
                         <b>${terrLabel(name)}</b>${castleIcon ? ' 🏰' : ''}
                         <div class="hcp-count" style="color:${borderColor}">${ownerLabel}${units>0?' · '+units+' units':''}${hopsNote}${viaNote}${siegeWarn}</div>
                     </div>`;
