@@ -948,20 +948,36 @@ function initBoard() {
         }
         if (secondary) {
             setBoardTerr(secondary.name, color, {F:secondary.units,A:0,C:0,S:0}, false);
+            // Place adjacent units for secondary capital (uses first available adjOption)
+            const secAdj = secondary.adjOptions?.[0];
+            if (secAdj) {
+                const adjUnits = Math.max(0, 5 - secondary.units);
+                if (adjUnits > 0) setBoardTerr(secAdj.name, color, {F:adjUnits,A:0,C:0,S:0}, false);
+            }
         }
     });
     // Player territories
     const pc = S.playerCapital;
     const ps = S.playerSecondary;
     if (pc) {
-        setBoardTerr(pc.name, S.playerColor, {F: S.playerPrimaryUnits||3, A:0,C:0,S:0}, true);
-        if (pc._adj) {
-            const adjU = Math.max(0, 5 - (S.playerPrimaryUnits||3));
-            setBoardTerr(pc._adj.name, S.playerColor, {F:adjU,A:0,C:0,S:0}, false);
+        const priUnits = S.playerPrimaryUnits ?? 3;
+        setBoardTerr(pc.name, S.playerColor, {F:priUnits, A:0,C:0,S:0}, true);
+        // Use player's chosen adjacent territory (S.playerPrimaryAdj), fall back to _adj or first option
+        const priAdjName = S.playerPrimaryAdj || pc._adj?.name || pc.adjOptions?.[0]?.name;
+        if (priAdjName) {
+            const adjU = Math.max(0, 5 - priUnits);
+            if (adjU > 0) setBoardTerr(priAdjName, S.playerColor, {F:adjU, A:0,C:0,S:0}, false);
         }
     }
     if (ps) {
-        setBoardTerr(ps.name, S.playerColor, {F:ps.units,A:0,C:0,S:0}, false);
+        const secUnits = S.playerSecondaryUnits ?? 3;
+        setBoardTerr(ps.name, S.playerColor, {F:secUnits, A:0,C:0,S:0}, false);
+        // Use player's chosen adjacent territory (S.playerSecondaryAdj), fall back to first option
+        const secAdjName = S.playerSecondaryAdj || ps.adjOptions?.[0]?.name;
+        if (secAdjName) {
+            const secAdjU = Math.max(0, 5 - secUnits);
+            if (secAdjU > 0) setBoardTerr(secAdjName, S.playerColor, {F:secAdjU, A:0,C:0,S:0}, false);
+        }
     }
     console.log('Board initialized:', Object.keys(G.board).length, 'territories,',
         Object.values(G.board).filter(b=>b.owner!=='neutral').length, 'owned.');
@@ -1468,6 +1484,7 @@ function applyNonCombatMove(mv) {
         if (sk) {
             G.shields = G.shields || {};
             G.shields[sk] = mv.color;
+            addLog(`🛡 SHIELD GAINED: ${cName(mv.color)} now holds the ${cityLabel(mv.to)} shield token (non-combat capture).`);
             applyShieldBonus(sk, mv.color, 'capture');
         }
     } else {
@@ -1517,7 +1534,9 @@ const S = {
     step:0, playerColor:null, firstAuto:null,
     autoCapitals:{}, playerCapital:null,
     autoSecondary:{}, playerSecondary:null,
-    takenAdj:new Set(), shuffledCaps:[], coinsData:[]
+    takenAdj:new Set(), shuffledCaps:[], coinsData:[],
+    playerPrimaryAdj:null, playerPrimaryUnits:undefined,
+    playerSecondaryAdj:null, playerSecondaryUnits:undefined
 };
 
 function autoColors() { return ['orange','green','purple','blue'].filter(c=>c!==S.playerColor); }
@@ -1633,7 +1652,7 @@ function renderCapCard(color, capital, isPrimary) {
     const adj = capital._adj || capital.adjOptions[0];
 
     const extra = isPrimary
-        ? `<br>🏰 <b>1 Castle</b> on ${capital.name}${capital.city && capital.city !== capital.name ? ' (' + capital.city + ')' : ''}<br>👑 Place <b>1 Crown miniature</b> inside ${capital.city || capital.name} on the map<br>📍 Start banner at <b>2</b> on Crown Track (2nd miniature goes in secondary city at next step)`
+        ? `<br>🏰 <b>1 Castle</b> on ${capital.name}${capital.city && capital.city !== capital.name ? ' (' + capital.city + ')' : ''}<br>👑 Place <b>1 Crown miniature</b> inside ${capital.city || capital.name} on the map<br>📍 Start banner at <b>${capital.name==='Rome'?'3 (Rome Shield +1 Crown)':'2'}</b> on Crown Track (2nd miniature goes in secondary city at next step)`
         : `<br><span style="color:#888;font-style:italic;">No castle on secondary capital.</span>`;
     return `<div class="capital-card">
         <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[color]}"></div>
@@ -1712,28 +1731,54 @@ function renderPlayerCapital(el) {
 
 function renderPlayerCapDetail() {
     const cap = S.playerCapital; if (!cap) return '';
-    const adj = cap._adj || cap.adjOptions[0];
     const primary = S.playerPrimaryUnits !== undefined ? S.playerPrimaryUnits : 3;
     const adjUnits = Math.max(0, 5 - primary);
+    const isRome = cap.name === 'Rome';
+    const startCrowns = isRome ? 3 : 2;
+    const crownNote = isRome
+        ? `<b>3 on the Crown Track</b> <span style="color:var(--gold-dark,#b8860b);font-size:0.9em;">(Rome's Shield token grants +1 Crown at game start)</span>`
+        : `<b>2 on the Crown Track</b>`;
+
+    // Filter out territory names already placed by automas so we only offer genuinely free adjacents
+    const takenByAutos = new Set(autoColors().map(c => S.autoCapitals[c]?.name).filter(Boolean));
+    const adjOpts = (cap.adjOptions||[]).filter(a => !takenByAutos.has(a.name));
+
+    // Init selection
+    if (!S.playerPrimaryAdj || !adjOpts.find(a => a.name === S.playerPrimaryAdj)) {
+        S.playerPrimaryAdj = adjOpts[0]?.name || cap.adjOptions?.[0]?.name || null;
+    }
+
     return `<div class="capital-card">
         <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[S.playerColor]}"></div>
-        <div class="cap-name">${(S.playerColor||'').toUpperCase()} — ${cap.name}</div></div>
+        <div class="cap-name">${(S.playerColor||'').toUpperCase()} — ${cap.name}${cap.city&&cap.city!==cap.name?' ('+cap.city+')':''}</div></div>
         <div class="cap-body">
-            🏰 <b>1 Castle</b> on ${cap.name}${cap.city && cap.city !== cap.name ? ' (' + cap.city + ')' : ''}<br>👑 Place <b>1 Crown miniature</b> inside ${cap.city || cap.name} on the map — your 2nd miniature goes in your secondary city (assigned next step)<br>🏅 Start your banner at <b>2 on the Crown Track</b><br><br>
-            <b>How many Footmen at ${cap.name}?</b><br>
+            🏰 <b>1 Castle</b> on ${cap.name}<br>
+            👑 Place <b>1 Crown miniature</b> inside ${cap.city||cap.name} on the map — 2nd miniature goes in your secondary city (next step)<br>
+            🏅 Start your banner at ${crownNote}<br><br>
+            <b>How many Footmen at ${cap.name}?</b>
             <div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
                 <button class="ub" style="width:28px;height:28px;font-size:16px" onclick="changePlayerUnits(-1)">−</button>
                 <span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;min-width:30px;text-align:center">${primary}</span>
                 <button class="ub" style="width:28px;height:28px;font-size:16px" onclick="changePlayerUnits(1)">+</button>
                 <span style="color:var(--ink-light);font-size:0.9em;">at ${cap.name}</span>
             </div>
-            <div style="color:var(--ink-light);font-size:0.88em;">Remaining <b>${adjUnits}</b> Footmen → ${adj.name}</div>
-            <span class="cap-note">Total = 5 Footmen across both territories.</span>
+            <b>Place remaining <span style="color:var(--accent);font-size:1.1em;">${adjUnits}</span> Footmen in which adjacent territory?</b>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:8px 0;">
+                ${adjOpts.map(a=>`<div class="cap-btn${S.playerPrimaryAdj===a.name?' selected':''}" onclick="pickPrimaryAdj('${a.name}')" style="font-size:0.85em;padding:8px 6px;">${a.name}</div>`).join('')}
+            </div>
+            ${S.playerPrimaryAdj
+                ? `<div style="color:var(--ink-light);font-size:0.88em;">→ <b>${adjUnits}</b> Footmen will go to <b>${S.playerPrimaryAdj}</b></div>`
+                : '<div style="color:#c00;font-size:0.85em;">⚠ Please select an adjacent territory above</div>'}
+            <span class="cap-note">Total = 5 Footmen split across ${cap.name} and the adjacent territory.</span>
         </div></div>
-        <button class="btn-primary" onclick="wizNext()">UNITS PLACED →</button>`;
+        <button class="btn-primary" ${S.playerPrimaryAdj?'':'disabled'} onclick="wizNext()">UNITS PLACED →</button>`;
 }
 function changePlayerUnits(v) {
     S.playerPrimaryUnits = Math.max(0, Math.min(5, (S.playerPrimaryUnits||3) + v));
+    renderPlayerCapital(document.getElementById('wiz-body'));
+}
+function pickPrimaryAdj(name) {
+    S.playerPrimaryAdj = name;
     renderPlayerCapital(document.getElementById('wiz-body'));
 }
 
@@ -1757,34 +1802,104 @@ function renderSecondary(el) {
         if (color === S.playerColor) S.playerSecondary = cap;
         else S.autoSecondary[color] = cap;
     });
+
+    // Build the full set of placed territory names so we don't offer already-used adjacencies
+    const allPlacedNames = new Set([
+        ...autos.map(c => S.autoCapitals[c]?.name),
+        S.playerCapital?.name,
+        ...autos.map(c => S.autoSecondary[c]?.name),
+        S.playerSecondary?.name
+    ].filter(Boolean));
+
+    // Init player secondary adj selection
+    const ps = S.playerSecondary;
+    if (ps) {
+        const availAdj = (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name));
+        if (!S.playerSecondaryAdj || !availAdj.find(a => a.name === S.playerSecondaryAdj)) {
+            S.playerSecondaryAdj = availAdj[0]?.name || ps.adjOptions?.[0]?.name || null;
+        }
+        if (S.playerSecondaryUnits === undefined) S.playerSecondaryUnits = 3;
+    }
+
     const coinsData = [...autos, S.playerColor].map(color => {
-        const primary   = color === S.playerColor ? S.playerCapital     : S.autoCapitals[color];
-        const secondary = color === S.playerColor ? S.playerSecondary   : S.autoSecondary[color];
+        const primary   = color === S.playerColor ? S.playerCapital   : S.autoCapitals[color];
+        const secondary = color === S.playerColor ? S.playerSecondary : S.autoSecondary[color];
         return { color, primary, secondary, total: 5+(primary?.tax||0)+(secondary?.tax||0) };
     });
     S.coinsData = coinsData;
-    el.innerHTML = `
-        <div class="setup-title">Secondary Capitals & Starting Coins</div>
-        <div class="setup-sub">The remaining ${remaining.length} capitals are now distributed — same unit placement, but <b>no castle</b>. Each player's coin total is shown below.</div>
-        ${coinsData.map(d=>`<div class="capital-card">
+
+    const secUnits = S.playerSecondaryUnits ?? 3;
+    const adjUnits = Math.max(0, 5 - secUnits);
+    const adjOpts  = ps ? (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name)) : [];
+    const playerCoins = coinsData.find(d => d.color === S.playerColor);
+
+    const adjPickerHtml = ps ? `
+        <div class="capital-card" style="border:2px solid var(--player-color,#1a5fa8);">
+            <div class="cap-header">
+                <div class="cap-dot" style="background:${COLOR_HEX[S.playerColor]}"></div>
+                <div class="cap-name">${(S.playerColor||'').toUpperCase()} — ${ps.name}${ps.city&&ps.city!==ps.name?' ('+ps.city+')':''} <span style="font-weight:400;font-size:0.85em;opacity:0.7;">YOUR SECONDARY</span></div>
+            </div>
+            <div class="cap-body">
+                👑 Place <b>1 Crown miniature</b> inside ${ps.city||ps.name} on the map<br>
+                <br>
+                <b>How many Footmen at ${ps.name}?</b>
+                <div style="display:flex;align-items:center;gap:10px;margin:8px 0;">
+                    <button class="ub" style="width:28px;height:28px;font-size:16px" onclick="changeSecUnits(-1)">−</button>
+                    <span style="font-family:Cinzel,serif;font-size:1.4em;font-weight:700;min-width:30px;text-align:center">${secUnits}</span>
+                    <button class="ub" style="width:28px;height:28px;font-size:16px" onclick="changeSecUnits(1)">+</button>
+                    <span style="color:var(--ink-light);font-size:0.9em;">at ${ps.name}</span>
+                </div>
+                <b>Place remaining <span style="color:var(--accent);font-size:1.1em;">${adjUnits}</span> Footmen in which adjacent territory?</b>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:8px 0;">
+                    ${adjOpts.map(a=>`<div class="cap-btn${S.playerSecondaryAdj===a.name?' selected':''}" onclick="pickSecAdj('${a.name}')" style="font-size:0.85em;padding:8px 6px;">${a.name}</div>`).join('')}
+                </div>
+                ${S.playerSecondaryAdj
+                    ? `<div style="color:var(--ink-light);font-size:0.88em;">→ <b>${adjUnits}</b> Footmen will go to <b>${S.playerSecondaryAdj}</b></div>`
+                    : '<div style="color:#c00;font-size:0.85em;">⚠ Please select an adjacent territory above</div>'}
+                <span class="cap-note">Total = 5 Footmen split across ${ps.name} and the adjacent territory. No castle here.</span>
+            </div>
+        </div>
+        <div class="capital-card" style="background:rgba(0,0,0,0.03);">
+            <div class="cap-body" style="font-size:0.9em;">
+                💰 <b>Your starting coins: 5 + ${playerCoins?.primary?.tax||0} (primary) + ${playerCoins?.secondary?.tax||0} (secondary) = <span style="color:var(--accent);font-size:1.15em;font-weight:700;">${playerCoins?.total||0}</span></b>
+            </div>
+        </div>` : '';
+
+    const autosHtml = coinsData.filter(d => d.color !== S.playerColor).map(d => {
+        const secAdj = S.autoSecondary[d.color]?.adjOptions?.[0];
+        return `<div class="capital-card">
             <div class="cap-header"><div class="cap-dot" style="background:${COLOR_HEX[d.color]}"></div>
             <div class="cap-name">${d.color.toUpperCase()}</div></div>
             <div class="cap-body">
                 🏛 <b>Primary:</b> ${d.primary?.name||'?'} (Tax ${d.primary?.tax||'?'})<br>
                 🏛 <b>Secondary:</b> ${d.secondary?.name||'?'} (Tax ${d.secondary?.tax||'?'}) <i>— no castle</i><br>
+                &nbsp;&nbsp;&nbsp;↳ 3 Footmen in <b>${d.secondary?.name||'?'}</b>, 2 Footmen in <b>${secAdj?.name||'an adjacent territory'}</b><br>
                 💰 <b>Starting coins: 5 + ${d.primary?.tax||0} + ${d.secondary?.tax||0} = <span style="color:var(--accent);font-size:1.1em;">${d.total}</span></b>
-            </div></div>`).join('')}
+            </div></div>`;
+    }).join('');
+
+    el.innerHTML = `
+        <div class="setup-title">Secondary Capitals</div>
+        <div class="setup-sub">Each player receives a second capital. Place units and choose your adjacent territory below. No castle at secondary capitals.</div>
+        ${adjPickerHtml}
+        <div style="margin:10px 0 4px;font-family:Cinzel,serif;font-size:0.82em;font-weight:700;letter-spacing:0.05em;color:var(--ink-light);">AUTOMATON SECONDARIES</div>
+        ${autosHtml}
         <div class="info-box">
-            <b>For each player's secondary city:</b><br>
-            • Place <b>3 Footmen</b> in the secondary capital territory (no castle)<br>
-            • Place <b>2 Footmen</b> in the one adjacent territory shown above for each player<br>
-            • Place <b>1 Crown miniature</b> inside the secondary city on the map<br><br>
-            <b>Crown Track banners:</b> Set each player's banner to <b>2</b>. Exception: the player whose <em>primary</em> capital is <b>Rome</b> starts at <b>3</b> (Rome's Shield token grants +1 Crown).<br><br>
-            <b>Reserves (keep off-board):</b> Give each player 10 Footmen, 4 Archers, 4 Cavalry, 2 Siege Engines.<br>
-            <b>Starting coins:</b> Set each player's coins as shown above.
+            <b>Crown Track:</b> All banners start at <b>2</b>. Exception: <b>Rome</b> primary player starts at <b>3</b>.<br>
+            <b>Reserves (off-board):</b> 10 Footmen · 4 Archers · 4 Cavalry · 2 Siege Engines per player.<br>
+            <b>Set starting coins</b> as shown above for each player.
         </div>
-        <button class="btn-primary" onclick="launchGame()">✓ SETUP COMPLETE — START GAME →</button>
+        <button class="btn-primary" ${S.playerSecondaryAdj?'':'disabled'} onclick="launchGame()">✓ SETUP COMPLETE — START GAME →</button>
         <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
+}
+
+function changeSecUnits(v) {
+    S.playerSecondaryUnits = Math.max(0, Math.min(5, (S.playerSecondaryUnits ?? 3) + v));
+    renderSecondary(document.getElementById('wiz-body'));
+}
+function pickSecAdj(name) {
+    S.playerSecondaryAdj = name;
+    renderSecondary(document.getElementById('wiz-body'));
 }
 
 function renderReady(el) { launchGame(); }
@@ -1903,16 +2018,20 @@ function launchGame() {
     const crowns = {};
     const shields = {}; // shields[cityName] = color that owns it
     ['orange','green','purple','blue'].forEach(c => { crowns[c] = 2; }); // all start with 2 crowns
-    // Apply shield ownership and crown bonuses for starting capitals
-    const allCaps = { ...Object.fromEntries(autos.map(a=>[a, S.autoCapitals[a]?.name])), [S.playerColor]: S.playerCapital?.name };
-    Object.entries(allCaps).forEach(([c, terrName]) => {
-        const sk = shieldKeyForTerr(terrName);
-        if (sk) {
-            shields[sk] = c;                         // key is always city name
-            if (CITY_SHIELDS[sk].crownBonus) {
-                crowns[c] += CITY_SHIELDS[sk].crownBonus;
+    // Apply shield ownership and crown bonuses for BOTH primary and secondary starting capitals
+    const allPrimaries   = { ...Object.fromEntries(autos.map(a=>[a, S.autoCapitals[a]?.name])),   [S.playerColor]: S.playerCapital?.name };
+    const allSecondaries = { ...Object.fromEntries(autos.map(a=>[a, S.autoSecondary[a]?.name])),  [S.playerColor]: S.playerSecondary?.name };
+    [allPrimaries, allSecondaries].forEach(capMap => {
+        Object.entries(capMap).forEach(([c, terrName]) => {
+            if (!terrName) return;
+            const sk = shieldKeyForTerr(terrName);
+            if (sk) {
+                shields[sk] = c;
+                if (CITY_SHIELDS[sk].crownBonus) {
+                    crowns[c] += CITY_SHIELDS[sk].crownBonus;
+                }
             }
-        }
+        });
     });
     G = {
         round:1, step:1, slot:0,
@@ -2008,14 +2127,12 @@ function eliminatePlayer(color) {
     if (G.eliminated.has(color)) return;
     G.eliminated.add(color);
     G.savedByCrown.delete(color);
-    // Wipe all units and ownership
+    // Wipe all units and ownership — castles stay (they are permanent board structures)
     for (const name of Object.keys(G.board)) {
         if (G.board[name].owner === color) {
             G.board[name].owner = 'neutral';
             G.board[name].units = {F:0,A:0,C:0,S:0};
-            // Castle stays — rule says return "City Bonus Tiles and coins", not castles explicitly;
-            // but to keep board clean, remove the castle too
-            G.board[name].castle = false;
+            // Castles are permanent — they remain on the board for whoever recaptures the territory
         }
     }
     // Return coins to reserve (just zero out)
@@ -2715,7 +2832,9 @@ function confirmReset() {
     if (wo) wo.style.display = 'none';
     G = {};
     Object.assign(S, { step:0, playerColor:null, firstAuto:null, autoCapitals:{}, playerCapital:null,
-                       autoSecondary:{}, playerSecondary:null, takenAdj:new Set(), shuffledCaps:[], coinsData:[] });
+                       autoSecondary:{}, playerSecondary:null, takenAdj:new Set(), shuffledCaps:[], coinsData:[],
+                       playerPrimaryAdj:null, playerPrimaryUnits:undefined,
+                       playerSecondaryAdj:null, playerSecondaryUnits:undefined });
     document.getElementById('game-screen').style.display  = 'none';
     document.getElementById('setup-screen').style.display = 'block';
     showStep(0);
@@ -4088,7 +4207,12 @@ function applyHumanMove(from, to, moving) {
         if (cv>0) { G.crowns[pc]=(G.crowns[pc]||0)+cv; checkWin(pc); }
         const crownNote = cv>0 ? ` +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[pc]} total)` : '';
         const _sk = shieldKeyForTerr(to);
-        if (_sk) { G.shields=G.shields||{}; G.shields[_sk]=pc; }
+        if (_sk) {
+            G.shields=G.shields||{};
+            G.shields[_sk]=pc;
+            showShieldReminder(_sk, pc);
+            addLog(`🛡 SHIELD GAINED: You now hold the ${to} shield token.`);
+        }
         return {type:cv>0?'capture_crown':'capture', crowns:cv, outcome:`Captured ${to}!${crownNote}`, boardReminder:`Move <b>${unitStr(moving)}</b> to <b>${to}</b>. Change ownership flag to yours.${crownNote}`};
     } else {
         if (!G.roundCombats) G.roundCombats=[];
@@ -4171,7 +4295,7 @@ function hfSpendAdjust(k, delta) {
     if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
     const coins   = G.coins[S.playerColor]||0;
     const current = G.humanSpendCart[k]||0;
-    const cost    = UNIT_COSTS[k]||1;
+    const cost    = k === 'Castle' ? humanCastleCost() : (UNIT_COSTS[k]||1);
     const newVal  = current + delta;
     if (newVal < 0) return;
     const newTotal = spendCartTotal() - current*cost + newVal*cost;
