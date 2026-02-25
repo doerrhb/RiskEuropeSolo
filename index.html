@@ -93,25 +93,37 @@
         .player-tile.active::after { content: '▼ ACTIVE'; position: absolute; bottom: -16px; left: 50%;
             transform: translateX(-50%); color: white; font-size: 7px; font-family: 'Cinzel',serif; font-weight: 700;
             letter-spacing: 0.05em; white-space: nowrap; background: var(--ink); padding: 1px 5px; border-radius: 3px; z-index: 10; }
-        .p-name { font-family: 'Cinzel',serif; font-size: 0.7em; font-weight: 700; letter-spacing: 0.08em;
-                  color: rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; gap: 4px; }
-        .crown-badge { font-size: 11px; cursor: pointer; padding: 1px 3px; border-radius: 3px; opacity: 0.35; line-height: 1; transition: 0.15s; }
-        .player-tile.is-first .crown-badge { opacity: 1; filter: drop-shadow(0 0 4px silver); }
-        .player-tile.is-saved { border-color: #b8860b; background: #fef9e7; }
-        .player-tile.is-eliminated { opacity: 0.45; filter: grayscale(0.7); }
-        .player-tile.is-pending .crown-badge { opacity: 1; filter: drop-shadow(0 0 6px #c0c0c0); animation: pulse 1s infinite; }
+        .p-name { font-family:'Cinzel',serif; font-size:0.88em; font-weight:700; letter-spacing:0.07em;
+                  text-align:center; margin-bottom:1px; }
+        .pt-crown-line { font-family:'Cinzel',serif; font-size:1.35em; font-weight:700; text-align:center;
+                         margin:2px 0 4px; letter-spacing:0.03em; }
+        .pt-quad-row { display:grid; grid-template-columns:repeat(4,1fr); align-items:center;
+                       text-align:center; font-family:'Cinzel',serif; font-size:0.58em;
+                       font-weight:600; margin:3px 2px 0; gap:0; }
+        .pt-quad-cell { display:flex; flex-direction:column; align-items:center; line-height:1.2;
+                        padding:1px 0; border-right:1px solid rgba(255,255,255,0.15); }
+        .pt-quad-cell:last-child { border-right:none; }
+        .pt-quad-icon { font-size:1.25em; line-height:1; }
+        .pt-quad-val  { margin-top:1px; opacity:0.9; }
+        .pt-sub-row { display:flex; align-items:center; justify-content:center; gap:5px;
+                      font-family:'Cinzel',serif; font-size:0.52em; opacity:0.75; margin:3px 0 0; flex-wrap:wrap; }
+        .crown-badge { font-size:11px; cursor:pointer; padding:1px 3px; border-radius:3px; opacity:0.35; line-height:1; transition:0.15s; }
+        .player-tile.is-first .crown-badge { opacity:1; filter:drop-shadow(0 0 4px silver); }
+        .player-tile.is-saved { border-color:#b8860b; }
+        .player-tile.is-eliminated { opacity:0.45; filter:grayscale(0.7); }
+        .player-tile.is-pending .crown-badge { opacity:1; filter:drop-shadow(0 0 6px #c0c0c0); animation:pulse 1s infinite; }
         @keyframes pulse { 0%,100%{transform:scale(1)}50%{transform:scale(1.3)} }
-        .coin-row { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 4px 0 3px; }
-        .coin-count { font-family: 'Cinzel',serif; font-size: 1.28em; font-weight: 700; color: inherit; min-width: 24px; text-align: center; }
-        .coin-btn { background: rgba(128,128,128,0.2); border: 1px solid rgba(0,0,0,0.2); color: inherit;
-                    width: 22px; height: 22px; border-radius: 50%; cursor: pointer; font-size: 14px;
-                    display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.1s; }
-        .coin-btn:active { background: rgba(128,128,128,0.4); }
-        .coin-threshold { font-size: 0.58em; font-weight: 700; padding: 2px 6px; border-radius: 8px;
-                          color: white; letter-spacing: 0.05em; font-family: 'Cinzel',serif; }
-        .mode-tax   { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,100,100,0.7); }
-        .mode-spend { background: rgba(0,0,0,0.5); border: 1px solid rgba(100,255,150,0.6); }
-        .deck-pip { font-size: 0.58em; color: inherit; opacity: 0.55; font-family: 'Courier New',monospace; }
+        .coin-threshold { font-size:1em; font-weight:700; padding:1px 5px; border-radius:6px;
+                          color:white; letter-spacing:0.04em; font-family:'Cinzel',serif; }
+        .mode-tax   { background:rgba(0,0,0,0.5); border:1px solid rgba(255,100,100,0.7); }
+        .mode-spend { background:rgba(0,0,0,0.5); border:1px solid rgba(100,255,150,0.6); }
+        /* Error-correction adjusters — only shown in board editor */
+        .adj-row { display:flex; align-items:center; justify-content:center; gap:6px; margin:4px 0 2px; }
+        .adj-btn { background:rgba(128,128,128,0.2); border:1px solid rgba(0,0,0,0.2); color:inherit;
+                   width:24px; height:24px; border-radius:50%; cursor:pointer; font-size:15px;
+                   display:flex; align-items:center; justify-content:center; padding:0; }
+        .adj-btn:active { background:rgba(128,128,128,0.4); }
+        .adj-val { font-family:'Cinzel',serif; font-size:1.1em; font-weight:700; min-width:28px; text-align:center; }
 
         /* ACTION AREA */
         .action-area { padding: 14px; }
@@ -1919,8 +1931,10 @@ function launchGame() {
     G.humanDeck = shuffle([...DECK_BASE]);
     G.humanDiscard = [];
     G.humanCard = null;
+    G._initialDeal = true;
     initBoard();
     prepareRound(true);
+    G._initialDeal = false;
     addLog('=== GAME STARTED — Round 1 begins. Good luck! ===');
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('game-screen').style.display  = 'block';
@@ -1937,7 +1951,15 @@ function autoColors_g() { return G.seating.filter(c=>c!==S.playerColor && !(G.el
 function cName(c) { return c===S.playerColor ? 'You' : c.charAt(0).toUpperCase()+c.slice(1); }
 function cAttacks(c) { return c===S.playerColor ? 'You attack' : cName(c)+' attacks'; }
 
-function refillDeck(c) { G.decks[c]=shuffle([...DECK_BASE]); addLog(`DECK: ${cName(c)} card deck exhausted and reshuffled.`); }
+function refillDeck(c) {
+    G.decks[c] = shuffle([...DECK_BASE]);
+    if (G._initialDeal) {
+        // First deal of the game — not a reshuffle
+        addLog(`DECK: ${cName(c)} draws their starting hand (8-card deck dealt).`);
+    } else {
+        addLog(`DECK: ${cName(c)} card deck exhausted — reshuffled for a new hand.`);
+    }
+}
 
 function prepareRound(silent=false) {
     G.roundCombats = []; // fresh each round
@@ -2722,24 +2744,45 @@ function render() {
         const textColor = lightColors.includes(c) ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)';
         const subTextColor = lightColors.includes(c) ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
         tile.style.color = textColor;
-        const used  = isHuman ? `${G.humanDiscard.length}/8` : `${8-G.decks[c].length}/8`;
-        const mode  = (!isHuman && G.coins[c]<=4)
-            ? '<span class="coin-threshold mode-tax">TAX</span>'
-            : '<span class="coin-threshold mode-spend">SPEND</span>';
+        // Compute richer status info
+        const ownedTerrs = Object.keys(G.board||{}).filter(n=>(G.board[n]?.owner===c));
+        const ownedCities = ownedTerrs.filter(n=>T[n]?.tax>0).length;
+        const castleCount = ownedTerrs.filter(n=>G.board[n]?.castle).length;
+        const crownCards = G.crownCards?.[c]||0;
+        const cardsLeft = isHuman ? (8-G.humanDiscard.length) : G.decks[c].length;
+        const cardsUsed = isHuman ? G.humanDiscard.length : (8-G.decks[c].length);
+        // Army totals across all owned territories
+        const army = {F:0,A:0,C:0,S:0};
+        ownedTerrs.forEach(n=>{const u=G.board[n].units||{};army.F+=(u.F||0);army.A+=(u.A||0);army.C+=(u.C||0);army.S+=(u.S||0);});
+        // TAX MODE = automa will tax next (coins ≤ 4). SPEND MODE = will recruit units/castle.
+        // Shown last since it only applies to automas.
+        const modeBadge = isHuman ? '' : (G.coins[c]<=4
+            ? '<span class="coin-threshold mode-tax">TAX MODE</span>'
+            : '<span class="coin-threshold mode-spend">SPEND MODE</span>');
         tile.innerHTML = `
-            <div class="p-name"><span class="crown-badge" onclick="setFirst('${c}')" title="KING ME: set as next First Player">🪙</span>${c.toUpperCase()}${G.savedByCrown?.has(c)?' <span title="Saved by the Crown — must reclaim a city this round" style="font-size:0.75em;color:#b8860b;">⚠ GRACE</span>':''}${G.eliminated?.has(c)?' <span style="font-size:0.75em;color:#8b1a1a;">💀</span>':''}</div>
-            <div class="coin-row">
-                <button class="coin-btn" onclick="addCoin('${c}',-1)">−</button>
-                <span class="coin-count">${G.coins[c]}</span>
-                <button class="coin-btn" onclick="addCoin('${c}',+1)">+</button>
+            <div class="p-name">${c.toUpperCase()}${isHuman?' <span style="font-size:0.72em;opacity:0.75">(YOU)</span>':''}</div>
+            <div class="pt-crown-line" title="Crown score">👑 ${G.crowns[c]||0}</div>
+            <div class="pt-quad-row">
+                <div class="pt-quad-cell" title="Coins"><span class="pt-quad-icon">💰</span><span class="pt-quad-val">${G.coins[c]}</span></div>
+                <div class="pt-quad-cell" title="Territories"><span class="pt-quad-icon">🗺️</span><span class="pt-quad-val">${ownedTerrs.length}</span></div>
+                <div class="pt-quad-cell" title="Cities"><span class="pt-quad-icon">🏛️</span><span class="pt-quad-val">${ownedCities}</span></div>
+                <div class="pt-quad-cell" title="Castles"><span class="pt-quad-icon">🏰</span><span class="pt-quad-val">${castleCount}</span></div>
             </div>
-            <div class="coin-row" style="margin-top:2px;">
-                ${isHuman ? `<button class="coin-btn" onclick="addCrown('${c}',-1)">−</button>` : '<span style="width:18px"></span>'}
-                <span title="Crowns" style="font-size:0.75em;letter-spacing:0.02em;">👑${G.crowns[c]||0}</span>
-                ${isHuman ? `<button class="coin-btn" onclick="addCrown('${c}',+1)">+</button>` : '<span style="width:18px"></span>'}
+            <div class="pt-quad-row" style="margin-top:2px;">
+                <div class="pt-quad-cell" title="Footmen"><span class="pt-quad-icon">⚔️</span><span class="pt-quad-val">${army.F}</span></div>
+                <div class="pt-quad-cell" title="Archers"><span class="pt-quad-icon">🏹</span><span class="pt-quad-val">${army.A}</span></div>
+                <div class="pt-quad-cell" title="Cavalry"><span class="pt-quad-icon">🐴</span><span class="pt-quad-val">${army.C}</span></div>
+                <div class="pt-quad-cell" title="Siege Engines"><span class="pt-quad-icon">💣</span><span class="pt-quad-val">${army.S}</span></div>
             </div>
-            ${isHuman ? `<span style="font-size:0.58em;color:${subTextColor};">YOU</span>` : mode}
-            <div class="deck-pip">${used}</div>`;
+            <div class="pt-sub-row">
+                <span class="crown-badge" onclick="setFirst('${c}')" title="KING ME: tap to set as next First Player">🪙</span>
+                ${isFirst ? '<span>1st</span>' : ''}${isPending ? '<span style="opacity:0.6;">→1st</span>' : ''}
+                ${crownCards > 0 ? `<span title="Crown Cards">🃏×${crownCards}</span>` : ''}
+                ${G.savedByCrown?.has(c) ? '<span style="color:#f0c040;">⚠grace</span>' : ''}
+                ${G.eliminated?.has(c) ? '<span style="color:#ff6666;">💀</span>' : ''}
+                <span title="Cards: ${cardsLeft} left">🃏${cardsLeft}/8</span>
+                ${modeBadge}
+            </div>`;
         bar.appendChild(tile);
     });
 
@@ -3096,9 +3139,54 @@ function renderBEFull(bs) {
         </div>`;
     }).join('');
 
+    // Error-correction panel — coin & crown adjusters for all players
+    const colors4 = ['orange','green','purple','blue'];
+    const adjPanel = `
+        <div style="margin-top:18px;border-top:2px solid var(--border);padding-top:14px;">
+            <div style="font-family:'Cinzel',serif;font-size:0.78em;font-weight:700;color:var(--ink-light);text-align:center;margin-bottom:10px;letter-spacing:0.05em;">
+                ⚠ ERROR CORRECTION ONLY — adjust coins or crowns if a mistake was made
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                ${colors4.map(c => {
+                    const hex = COLOR_HEX[c]||'#888';
+                    const light = ['orange','green','blue'].includes(c);
+                    const txt = light ? '#000' : '#fff';
+                    return `<div style="background:${hex};color:${txt};border-radius:8px;padding:8px 6px;text-align:center;">
+                        <div style="font-family:'Cinzel',serif;font-size:0.72em;font-weight:700;margin-bottom:6px;">${c.toUpperCase()+(c===S.playerColor?' (YOU)':'')}</div>
+                        <div style="font-size:0.68em;opacity:0.75;margin-bottom:4px;">💰 Coins</div>
+                        <div class="adj-row">
+                            <button class="adj-btn" onclick="adjCoin('${c}',-1)" style="color:${txt};">−</button>
+                            <span class="adj-val" style="color:${txt};">${G.coins[c]||0}</span>
+                            <button class="adj-btn" onclick="adjCoin('${c}',1)" style="color:${txt};">+</button>
+                        </div>
+                        <div style="font-size:0.68em;opacity:0.75;margin-top:6px;margin-bottom:4px;">👑 Crowns</div>
+                        <div class="adj-row">
+                            <button class="adj-btn" onclick="adjCrown('${c}',-1)" style="color:${txt};">−</button>
+                            <span class="adj-val" style="color:${txt};">${G.crowns[c]||0}</span>
+                            <button class="adj-btn" onclick="adjCrown('${c}',1)" style="color:${txt};">+</button>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+
     document.getElementById('board-content').innerHTML =
         `<button class="fbs-back-btn" onclick="BE.step='list';renderBoardEditor()">‹ Back</button>` +
-        sections;
+        sections + adjPanel;
+}
+
+function adjCoin(c, v) {
+    G.coins[c] = Math.max(0, (G.coins[c]||0) + v);
+    addLog(`CORRECTION: ${cName(c)} coins adjusted to ${G.coins[c]} (manual error fix).`);
+    render();
+    renderBEFull(G.board);
+}
+function adjCrown(c, v) {
+    G.crowns[c] = Math.max(0, (G.crowns[c]||0) + v);
+    addLog(`CORRECTION: ${cName(c)} crowns adjusted to ${G.crowns[c]} (manual error fix).`);
+    checkWin(c);
+    render();
+    renderBEFull(G.board);
 }
 
 function bePickFrom(name) {
@@ -3807,8 +3895,8 @@ function generateHumanSteps(card, variant) {
     if (card === 'SPLIT EXPAND OR MANEUVER') {
         if (variant === 'SPLIT_EXPAND') {
             steps.push({ id:'check', text:
-                '<b>SPLIT EXPAND:</b> Move an army up to 2 territories into a city — you may pass through one of your own territories en route.<br>' + leaveRule
-                + '<span class="rule-note">Only pass through <b>own</b> territories. 1-step entries are also valid. Need a Siege Engine to enter a castle city.</span>' });
+                '<b>SPLIT EXPAND:</b> Move an army from one territory into <b>up to 2 cities</b> — both groups leave from the same territory. You may pass through your own territories to reach a city up to 2 hops away.<br>' + leaveRule
+                + '<span class="rule-note">Destination 2 is optional — you do not have to move into a second city. Only pass through <b>own</b> territories. Need a Siege Engine to enter a castle city.</span>' });
             steps.push({ id:'board', text:'<b>Update board state.</b> If the destination is enemy-held, use the Board Editor to queue the battle.' });
             if (berlinBonus) {
                 steps.push({ id:'check', text: berlinBonus });
@@ -4029,8 +4117,8 @@ function buildHumanFlow(card, variant) {
     }
     else if (card === 'SPLIT EXPAND OR MANEUVER') {
         if (variant==='SPLIT_EXPAND') {
-            steps.push(mk('split_expand_1','SPLIT EXPAND — Destination 1 (choose territory and units)'));
-            steps.push(mk('split_expand_2','SPLIT EXPAND — Destination 2 (choose territory and units)'));
+            steps.push(mk('split_expand_1','SPLIT EXPAND — Destination 1 (required)'));
+            steps.push(mk('split_expand_2','SPLIT EXPAND — Destination 2 (optional — up to 2 territories)', true));
             addBerlinBonus();
         }
         else addManeuver();
@@ -4168,10 +4256,17 @@ function hfSelect(idx, choice) {
     const pc = S.playerColor;
     const step = G.humanFlow[idx];
     if (!step) return;
-    const compound = ['expand','split_expand','maneuver','siege'].includes(step.type);
+    const compound = ['expand','split_expand','split_expand_1','split_expand_2','maneuver','siege'].includes(step.type);
     if (compound) {
         // choice = territory name (from)
         step.from = choice;
+        // For split expand: both steps must share the same origin — lock step 2's from when step 1's from is set
+        if (step.type === 'split_expand_1') {
+            const step2 = G.humanFlow.find(s => s.type === 'split_expand_2');
+            if (step2 && step2.state === 'pick_from') {
+                step2.from = choice;  // pre-lock to same origin
+            }
+        }
         step.state = 'pick_to';
         renderHumanTurn(); return;
     }
@@ -4224,17 +4319,10 @@ function hfPickDest(idx, to) {
     const isSiege = step.type === 'siege';
     const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
     const totalAvail = totalUnitCount(from);
-    // For split expand, total across both steps must leave 1 behind
-    // If this is step 2, subtract what step 1 already committed
-    let alreadyCommitted = 0;
-    if (step.type === 'split_expand_2' || step.type === 'split_expand_1') {
-        (G.humanFlow||[]).forEach((s,si) => {
-            if (si !== (G.humanFlow||[]).indexOf(step) && (s.type==='split_expand_1'||s.type==='split_expand_2') && s.pendingUnits) {
-                alreadyCommitted += (s.pendingUnits.F||0)+(s.pendingUnits.A||0)+(s.pendingUnits.C||0)+(s.pendingUnits.S||0);
-            }
-        });
-    }
-    const maxMove = totalAvail - 1 - alreadyCommitted; // must leave 1 behind total
+    // Leave 1 unit behind. For split_expand_2 the board already reflects
+    // step 1's deduction (applyHumanMove runs immediately on confirm), so
+    // we just use the live board total — no double-subtraction needed.
+    const maxMove = totalAvail - 1; // must leave 1 behind
 
     // Default: move everything movable (matching previous behaviour as starting point)
     const defaultUnits = isSiege ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
@@ -4251,15 +4339,8 @@ function hfAdjUnit(idx, k, delta) {
     const from = step.from;
     const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
     const totalAvail = totalUnitCount(from);
-    let _committed2 = 0;
-    if (step.type === 'split_expand_2' || step.type === 'split_expand_1') {
-        (G.humanFlow||[]).forEach((s,si) => {
-            if (s !== step && (s.type==='split_expand_1'||s.type==='split_expand_2') && s.pendingUnits) {
-                _committed2 += (s.pendingUnits.F||0)+(s.pendingUnits.A||0)+(s.pendingUnits.C||0)+(s.pendingUnits.S||0);
-            }
-        });
-    }
-    const maxMove = totalAvail - 1 - _committed2;
+    // Leave 1 unit behind. Board already reflects prior split step's deduction.
+    const maxMove = totalAvail - 1;
     const pu = step.pendingUnits;
     const totalMoving = (pu.F||0)+(pu.A||0)+(pu.C||0)+(pu.S||0);
     const newVal = (pu[k]||0) + delta;
@@ -4552,6 +4633,18 @@ function renderFlowStepBody(step, idx) {
             }
 
             if (step.state === 'pick_from') {
+                // split_expand_2: from is pre-locked to same origin as step 1.
+                // Auto-advance to pick_to only once step 1 is done (confirmed).
+                if (step.type === 'split_expand_2' && step.from) {
+                    const step1 = G.humanFlow.find(s => s.type === 'split_expand_1');
+                    if (!step1 || step1.state === 'done') {
+                        step.state = 'pick_to';
+                        return renderFlowStepBody(step, idx);
+                    }
+                    // Step 1 not yet done — show waiting message with skip option
+                    return `<p style="font-size:0.83em;color:var(--ink-light);">⏳ Complete Destination 1 first, then Destination 2 will unlock here.</p>
+                        <button class="btn-retreat" style="margin-top:6px;font-size:0.8em;" onclick="hfSkip(${idx})">Skip — move into 1 territory only</button>`;
+                }
                 const opts = step.type==='siege' ? humanSiegeFromOpts() : humanMoveFromOpts();
                 if (!opts.length) {
                     const msg = step.type==='siege' ? 'No territories with Siege Engines available.'
@@ -4561,6 +4654,7 @@ function renderFlowStepBody(step, idx) {
                 }
                 const lbl = step.type==='siege' ? 'Which territory has your Siege Engine?'
                           : step.type==='maneuver' ? 'Maneuver from which territory? (leave 1 unit behind; not from contested):'
+                          : step.type==='split_expand_1' ? 'Split Expand — choose your origin territory (both groups leave from here):'
                           : 'Move from which territory? (leave 1 unit behind; not from contested):';
                 const btns = opts.map(o => {
                     const mov = totalUnitCount(o.name)-1;
