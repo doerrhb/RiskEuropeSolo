@@ -948,8 +948,8 @@ function initBoard() {
         }
         if (secondary) {
             setBoardTerr(secondary.name, color, {F:secondary.units,A:0,C:0,S:0}, false);
-            // Place adjacent units for secondary capital (uses first available adjOption)
-            const secAdj = secondary.adjOptions?.[0];
+            // Place adjacent units for secondary capital — must be a non-city territory (same rule as setup picker)
+            const secAdj = (secondary.adjOptions||[]).find(a => !(T[a.name]?.tax > 0));
             if (secAdj) {
                 const adjUnits = Math.max(0, 5 - secondary.units);
                 if (adjUnits > 0) setBoardTerr(secAdj.name, color, {F:adjUnits,A:0,C:0,S:0}, false);
@@ -1332,10 +1332,15 @@ function getManeuverMoves(color) {
             for (const adj of (T[cur]?.adj || [])) {
                 if (visited.has(adj)) continue;
                 const adjOwner = G.board[adj]?.owner;
-                // Can only travel through own territories (or land in disputed)
                 if (adjOwner !== color) {
-                    // Can we land here? Only if it's own or disputed own territory
-                    // (neutral/enemy are not valid maneuver destinations)
+                    // A territory this color is attacking is a valid landing spot for a maneuver
+                    // (units can reinforce into a contested territory, but cannot pass through it)
+                    const isAttackedByUs = (G.roundCombats||[]).some(b => b.to === adj && !b._resolved && b.color === color);
+                    if (isAttackedByUs) {
+                        visited.add(adj);
+                        moves.push({ from, to: adj, hops: hops + 1, movable });
+                    }
+                    // Neutral/enemy territory: not a valid destination and cannot pass through
                     continue;
                 }
                 visited.add(adj);
@@ -1741,7 +1746,8 @@ function renderPlayerCapDetail() {
 
     // Filter out territory names already placed by automas so we only offer genuinely free adjacents
     const takenByAutos = new Set(autoColors().map(c => S.autoCapitals[c]?.name).filter(Boolean));
-    const adjOpts = (cap.adjOptions||[]).filter(a => !takenByAutos.has(a.name));
+    // Setup rule: adjacent starting territory MUST be a non-city (non-urban) territory
+    const adjOpts = (cap.adjOptions||[]).filter(a => !takenByAutos.has(a.name) && !(T[a.name]?.tax > 0));
 
     // Init selection
     if (!S.playerPrimaryAdj || !adjOpts.find(a => a.name === S.playerPrimaryAdj)) {
@@ -1814,7 +1820,7 @@ function renderSecondary(el) {
     // Init player secondary adj selection
     const ps = S.playerSecondary;
     if (ps) {
-        const availAdj = (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name));
+        const availAdj = (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name) && !(T[a.name]?.tax > 0));
         if (!S.playerSecondaryAdj || !availAdj.find(a => a.name === S.playerSecondaryAdj)) {
             S.playerSecondaryAdj = availAdj[0]?.name || ps.adjOptions?.[0]?.name || null;
         }
@@ -1830,7 +1836,8 @@ function renderSecondary(el) {
 
     const secUnits = S.playerSecondaryUnits ?? 3;
     const adjUnits = Math.max(0, 5 - secUnits);
-    const adjOpts  = ps ? (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name)) : [];
+    // Setup rule: adjacent starting territory MUST be a non-city (non-urban) territory
+    const adjOpts  = ps ? (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name) && !(T[a.name]?.tax > 0)) : [];
     const playerCoins = coinsData.find(d => d.color === S.playerColor);
 
     const adjPickerHtml = ps ? `
@@ -2412,9 +2419,16 @@ function generateSteps(card, color, coins) {
                     G.pendingMoves.push({ type:'maneuver', color, from:bonusManeuver.from, to:bonusManeuver.to, movingUnits:bmMoving, _berlinBonus:true });
                 }
             }
+            // Crown alert: check if this automa is about to claim a crown city
+            const _expandCv = (!expandDec.isEnemy && G.board[expandDec.to]?.owner === 'neutral') ? crownValueOfCity(expandDec.to) : 0;
+            const _crownAlert = _expandCv > 0
+                ? `<div style="margin-top:6px;padding:5px 8px;background:#7a1a1a;color:#fff;border-radius:5px;font-weight:700;font-size:0.95em;">
+                    👑 CROWN GAINED: ${cName(color)} captures ${cityLabel(expandDec.to)} and scores +${_expandCv} Crown! Move ${cName(color)}'s banner to ${(G.crowns[color]||0)+_expandCv} on the Crown Track.
+                   </div>`
+                : '';
             EXPAND = [
                 `<b>EXPAND:</b> ${moveDetail}.<br>${leaveDetail} (leave-behind rule: ${T[expandDec.from].tax>0?'Tax value '+T[expandDec.from].tax:'1 unit for non-urban'}).
-                 <span class="rule-note">Target: ${expandDec.to} (Tax ${expandDec.tax}${expandDec.isEnemy?', ENEMY: '+expandDec.defenders+' defenders':', '+(G.board[expandDec.to].owner==='neutral'?'neutral':'friendly')+'.'})${expandDec.hasCastle?' ⚠ Has castle — Siege Engine required.':''}</span>`,
+                 <span class="rule-note">Target: ${expandDec.to} (Tax ${expandDec.tax}${expandDec.isEnemy?', ENEMY: '+expandDec.defenders+' defenders':', '+(G.board[expandDec.to].owner==='neutral'?'neutral':'friendly')+'.'})${expandDec.hasCastle?' ⚠ Has castle — Siege Engine required.':''}</span>${_crownAlert}`,
                 ...(berlinReminder ? [berlinReminder] : []),
                 ...(combatStep ? [combatStep] : []),
             ];
@@ -2485,10 +2499,10 @@ function generateSteps(card, color, coins) {
             G._stepCoinEffects[1] = taxAmt;
             steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check this step to automatically add ${taxAmt} coins to ${C}'s total.
                 <span class="rule-note">Yield = city's own Tax value + 1 per connected non-urban territory + Tax value of connected cities ${C} owns (all connected through ${C}'s own supply line).</span>`);
-            // Shield reminders for tax-trigger cities
+            // Shield reminders for tax-trigger cities — inline into the tax step (not a separate checkable)
             const _taxSK1 = shieldKeyForTerr(taxCity);
             if (_taxSK1 && CITY_SHIELDS[_taxSK1]?.trigger === 'tax' && G.shields?.[_taxSK1] === color) {
-                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[_taxSK1].reminder}</div>`);
+                steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS[_taxSK1].reminder}</div>`;
             }
         } else {
             const { cost, items } = getBestSpend(coins, color);
@@ -2518,16 +2532,16 @@ function generateSteps(card, color, coins) {
                 } else if (p.type === 'siege') {
                     steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest territory to an enemy castle.`);
                     if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color) {
-                        steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`);
+                        steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`;
                     }
                 } else {
                     const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
                     steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
                 }
             });
-            // Kiev shield — remind player they can place in non-city supply territories
+            // Kiev shield — inline into the last placement step (not a separate checkable)
             if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color) {
-                steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`);
+                steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`;
             }
         }
         return steps;
@@ -2689,9 +2703,10 @@ function generateSteps(card, color, coins) {
             G._stepCoinEffects[4] = taxAmt; // step index 4 (after 0=kingme,1=note,2=divider,3=header)
             steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check to automatically add ${taxAmt} coins.
                 <span class="rule-note">Yield = Tax value + 1 per connected non-urban territory + Tax of connected owned cities.</span>`);
+            // Inline the shield reminder into the tax step (not a separate checkable)
             const _taxSK2 = shieldKeyForTerr(taxCity);
             if (_taxSK2 && CITY_SHIELDS[_taxSK2]?.trigger === 'tax' && G.shields?.[_taxSK2] === color) {
-                steps.push(`<div class="shield-reminder">${CITY_SHIELDS[_taxSK2].reminder}</div>`);
+                steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS[_taxSK2].reminder}</div>`;
             }
         } else {
             const { cost, items } = getBestSpend(coins, color);
@@ -2714,14 +2729,15 @@ function generateSteps(card, color, coins) {
                 } else if (p.type === 'siege') {
                     steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest to an enemy castle.`);
                     if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color)
-                        steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`);
+                        steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`;
                 } else {
                     const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
                     steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
                 }
             });
+            // Inline Kiev reminder into last placement step
             if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color)
-                steps.push(`<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`);
+                steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`;
         }
         return steps;
     }
@@ -3221,9 +3237,13 @@ function renderBEFull(bs) {
         return p.join('+') || '—';
     }
 
+    // Must compute pendingBattles & contestedTerrs BEFORE sections map
+    const pendingBattles = (G.roundCombats||[]).filter(b => !b._resolved);
+    const contestedTerrs = new Set(pendingBattles.map(b => b.to));
+
     const sections = allColors.map(c => {
         const territories = Object.keys(bs)
-            .filter(n => bs[n].owner === c)
+            .filter(n => bs[n].owner === c && !contestedTerrs.has(n))
             .sort((a,b) => (T[b]?.tax||0)-(T[a]?.tax||0) || a.localeCompare(b));
 
         const bg = c === 'neutral' ? '#888' : (COLOR_HEX[c] || '#888');
@@ -3258,6 +3278,43 @@ function renderBEFull(bs) {
         </div>`;
     }).join('');
 
+    // Build contested section HTML (pendingBattles & contestedTerrs already computed above)
+    let contestedHtml = '';
+    if (pendingBattles.length > 0) {
+        const contestedRows = pendingBattles.map(b => {
+            const brd = G.board[b.to];
+            if (!brd) return '';
+            const defColor = brd.owner;
+            const defHex = COLOR_HEX[defColor]||'#888';
+            const attHex = COLOR_HEX[b.color]||'#888';
+            const defTxt = ['orange','green','blue'].includes(defColor)?'#000':'#fff';
+            const attTxt = ['orange','green','blue'].includes(b.color)?'#000':'#fff';
+            const tax = T[b.to]?.tax > 0 ? `Tax ${T[b.to].tax} city` : 'non-urban';
+            const castle = brd.castle ? ' 🏰' : '';
+            const defUnits = unitStr(brd.units);
+            const attUnits = unitStr(b.movingUnits||{});
+            return `<div class="fbs-row" onclick="openTerrEdit('${b.to.replace(/'/g,"\\'")}')">
+                <div class="fr-name" style="color:#8b1a1a;font-weight:700;">⚔ ${b.to}${castle}</div>
+                <div class="fr-sub">${tax}</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:3px;">
+                    <span style="background:${defHex};color:${defTxt};padding:2px 7px;border-radius:4px;font-size:0.78em;font-weight:700;">
+                        DEF ${defColor.toUpperCase()}${defColor===S.playerColor?' (YOU)':''}: ${defUnits} (${unitTotal(brd.units)})
+                    </span>
+                    <span style="background:${attHex};color:${attTxt};padding:2px 7px;border-radius:4px;font-size:0.78em;font-weight:700;">
+                        ATT ${b.color.toUpperCase()}${b.color===S.playerColor?' (YOU)':''}: ${attUnits} (${unitTotal(b.movingUnits||{})})
+                    </span>
+                </div>
+            </div>`;
+        }).join('');
+        contestedHtml = `<div class="fbs-section">
+            <div class="fbs-section-hdr" style="background:#8b1a1a;color:#fff;">
+                ⚔ CONTESTED &nbsp;·&nbsp; ${pendingBattles.length} pending battle${pendingBattles.length>1?'s':''}
+            </div>
+            ${contestedRows}
+        </div>`;
+    }
+
+
     // Error-correction panel — coin & crown adjusters for all players
     const colors4 = ['orange','green','purple','blue'];
     const adjPanel = `
@@ -3291,7 +3348,7 @@ function renderBEFull(bs) {
 
     document.getElementById('board-content').innerHTML =
         `<button class="fbs-back-btn" onclick="BE.step='list';renderBoardEditor()">‹ Back</button>` +
-        sections + adjPanel;
+        contestedHtml + sections + adjPanel;
 }
 
 function adjCoin(c, v) {
@@ -3853,11 +3910,13 @@ function closeCombat(){
                     addLog(`${cName(b.color)} moves ${unitStr(b.movingUnits||{})} from ${b.from} to ${cityLabel(b.to)}. ${cityLabel(b.to)} is captured and ${cName(b.color)} gains ${cv} Crown${cv>1?'s':''} (banner now at ${G.crowns[b.color]}).`);
                     checkWin(b.color);
                 }
-                if (CITY_SHIELDS[b.to]) {
+                const _cpSK = shieldKeyForTerr(b.to);
+                if (_cpSK) {
                     if (!G.shields) G.shields = {};
-                    G.shields[b.to] = b.color;
-                    addLog('🛡 ' + cName(b.color) + ' gains the ' + b.to + ' shield.');
-                    showShieldReminder(b.to, b.color);
+                    G.shields[_cpSK] = b.color;
+                    addLog(`🛡 SHIELD GAINED: ${cName(b.color)} now holds the ${cityLabel(b.to)} shield token (captured via combat).`);
+                    showShieldReminder(_cpSK, b.color);
+                    applyShieldBonus(_cpSK, b.color, 'capture');
                 }
                 showShieldReminder('Stockholm', b.color);
                 applyShieldBonus('Stockholm', b.color, 'battle_win');
@@ -4098,7 +4157,7 @@ function humanIsDisputed(name) {
 }
 function humanOwnedCities() {
     const pc = S.playerColor;
-    return Object.keys(G.board).filter(n => G.board[n].owner === pc && (T[n]?.tax||0) > 0)
+    return Object.keys(G.board).filter(n => G.board[n].owner === pc && (T[n]?.tax||0) > 0 && !isContested(n))
         .map(n => ({ name:n, tax:T[n].tax, units:totalUnitCount(n), hasCastle:!!G.board[n].castle }));
 }
 function humanMoveFromOpts() {
@@ -4152,7 +4211,18 @@ function humanManeuverToOpts(from) {
         const {name:cur,hops,via:prevVia} = queue.shift();
         if (hops>=2) continue;
         for (const adj of (T[cur]?.adj||[])) {
-            if (visited.has(adj)||!G.board[adj]||G.board[adj].owner!==pc) continue;
+            if (visited.has(adj)||!G.board[adj]) continue;
+            const adjOwner = G.board[adj].owner;
+            if (adjOwner !== pc) {
+                // A territory the human is actively attacking is a valid maneuver destination
+                // (reinforce into a contested territory, but can't pass through it)
+                const isAttackedByUs = (G.roundCombats||[]).some(b => b.to === adj && !b._resolved && b.color === pc);
+                if (isAttackedByUs && !visited.has(adj)) {
+                    visited.add(adj);
+                    results.push({name:adj,hops:hops+1,disputed:true,units:totalUnitCount(adj),via:hops===1?prevVia||cur:null});
+                }
+                continue;
+            }
             visited.add(adj);
             const via = hops===1 ? prevVia||cur : null;
             results.push({name:adj,hops:hops+1,disputed:humanIsDisputed(adj),units:totalUnitCount(adj),via});
@@ -5646,6 +5716,12 @@ function applyBattleResult(b, result) {
         // Both wiped — territory goes neutral (source already cleared for human attacks)
         G.board[b.to].units = {F:0,A:0,C:0,S:0};
         G.board[b.to].owner = 'neutral';
+        // Clear any shield token — no one holds a neutral territory
+        const _drawSK = shieldKeyForTerr(b.to);
+        if (_drawSK && G.shields?.[_drawSK]) {
+            addLog(`🛡 SHIELD LOST: ${b.to} reverted to neutral — ${cName(G.shields[_drawSK])} loses the ${_drawSK} shield token.`);
+            delete G.shields[_drawSK];
+        }
         if (b.from !== '__editor__' && !b._prededucted) {
             ['F','A','C','S'].forEach(k => {
                 G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
