@@ -58,6 +58,26 @@
         .game-header { background: var(--ink); color: var(--gold-light); padding: 10px 16px;
                        font-family: 'Cinzel', serif; display: flex; justify-content: space-between; align-items: center;
                        border-bottom: 3px solid var(--gold); }
+        .save-btn { background:none; border:1px solid rgba(200,149,42,0.5); color:var(--gold-light); border-radius:5px;
+                    font-family:'Cinzel',serif; font-size:0.65em; padding:4px 8px; cursor:pointer; letter-spacing:0.04em; }
+        .save-btn:hover { background:rgba(200,149,42,0.15); }
+        /* Save/Load overlay */
+        .saveload-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9100;display:flex;align-items:center;justify-content:center; }
+        .saveload-modal { background:var(--parchment);border-radius:12px;width:min(96vw,420px);padding:20px;box-shadow:0 8px 40px rgba(0,0,0,0.5); }
+        .saveload-modal h3 { font-family:'Cinzel',serif;margin:0 0 14px;color:var(--ink);font-size:1em; }
+        .save-slot { display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#fff;
+                     border:1px solid var(--border-light);border-radius:8px;margin-bottom:8px; }
+        .save-slot-info { font-size:0.82em;color:var(--ink); }
+        .save-slot-info .slot-name { font-family:'Cinzel',serif;font-weight:700;font-size:0.95em; }
+        .save-slot-info .slot-meta { color:var(--ink-light);font-size:0.85em;margin-top:2px; }
+        .save-slot-btns { display:flex;gap:6px; }
+        .sl-btn { font-size:0.75em;padding:5px 10px;border-radius:5px;border:none;cursor:pointer;font-family:'Cinzel',serif;font-weight:700; }
+        .sl-btn.save  { background:var(--gold);color:#1a1208; }
+        .sl-btn.load  { background:var(--ink);color:var(--gold-light); }
+        .sl-btn.del   { background:#8b1a1a;color:#fff; }
+        .sl-btn:disabled { opacity:0.35;cursor:not-allowed; }
+        .sl-export { margin-top:12px;padding-top:12px;border-top:1px solid var(--border-light); }
+        .sl-export textarea { width:100%;height:80px;font-size:0.7em;font-family:monospace;border:1px solid var(--border);border-radius:6px;padding:6px;box-sizing:border-box;resize:vertical; }
         .gh-round { font-size: 1.05em; font-weight: 700; }
         .gh-step  { font-size: 0.8em; opacity: 0.85; }
         .log-strip { background: #1a1208; border-bottom: 2px solid var(--border); padding: 5px 14px;
@@ -539,6 +559,15 @@
         .cp-result-banner.win  { background:rgba(30,126,68,0.12); color:#1e7e44; border:2px solid #1e7e44; }
         .cp-result-banner.loss { background:rgba(139,26,26,0.1); color:var(--accent); border:2px solid var(--accent); }
         .cp-result-banner.draw { background:rgba(200,149,42,0.12); color:var(--gold); border:2px solid var(--gold); }
+        /* ── Full Log Overlay ── */
+        .full-log-overlay { position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center; }
+        .full-log-modal { background:var(--parchment);border-radius:12px;width:min(96vw,540px);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.4); }
+        .full-log-header { display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:2px solid var(--border);font-family:'Cinzel',serif;font-size:1em;font-weight:700;color:var(--ink); }
+        .full-log-header button { background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--ink-light);line-height:1; }
+        .full-log-body { overflow-y:auto;padding:10px 14px;flex:1; }
+        .full-log-entry { font-size:0.78em;color:var(--ink);padding:5px 0;border-bottom:1px dotted var(--border-light);font-family:'Courier New',monospace;line-height:1.4; }
+        .full-log-entry:first-child { color:var(--ink);font-weight:bold; }
+        .full-log-entry.old { color:var(--ink-light); }
         .cp-end-btn { width:100%; padding:16px; background:var(--ink); color:var(--gold-light); border:none; border-radius:8px; font-family:'Cinzel',serif; font-size:1em; font-weight:700; cursor:pointer; margin-top:4px; letter-spacing:0.04em; }
         .cp-end-btn:active { opacity:0.85; }
         .cp-end-btn:disabled { opacity:0.4; cursor:not-allowed; }
@@ -578,8 +607,33 @@
     <div class="game-header">
         <span class="gh-round" id="round-display">ROUND 1</span>
         <span class="gh-step"  id="step-display">ACTION 1 of 2</span>
+        <button class="save-btn" onclick="openSaveLoad()">💾 Save / Load</button>
     </div>
-    <div class="log-strip" id="action-log"></div>
+    <div id="saveload-overlay" class="saveload-overlay" style="display:none">
+        <div class="saveload-modal">
+            <h3>💾 Save / Load Game</h3>
+            <div id="saveload-slots"></div>
+            <div class="sl-export">
+                <div style="font-size:0.78em;color:var(--ink-light);margin-bottom:4px;">Export / Import (copy-paste to back up or transfer between devices):</div>
+                <textarea id="sl-json" placeholder="Paste exported save data here to import…"></textarea>
+                <div style="display:flex;gap:8px;margin-top:6px;">
+                    <button class="sl-btn save" onclick="slExport()">📋 Export to text</button>
+                    <button class="sl-btn load" onclick="slImport()">📥 Import from text</button>
+                    <button class="sl-btn del" onclick="closeSaveLoad()" style="margin-left:auto;">✕ Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="log-strip" id="action-log" onclick="openFullLog()" title="Tap to view full log" style="cursor:pointer;"></div>
+    <div id="full-log-overlay" class="full-log-overlay" style="display:none">
+        <div class="full-log-modal">
+            <div class="full-log-header">
+                <span>Full Game Log</span>
+                <button onclick="closeFullLog()">✕</button>
+            </div>
+            <div class="full-log-body" id="full-log-body"></div>
+        </div>
+    </div>
     <div class="players-bar" id="player-bar"></div>
     <div class="action-area">
         <div id="ai-view">
@@ -970,20 +1024,34 @@ function ownedBy(color) {
 }
 
 // Flood-fill from city through OWN territories to calculate tax yield
+function isContested(name) {
+    // A territory is contested if it has an unresolved queued battle attacking INTO it
+    return (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
+}
+
 function taxYield(color, cityName) {
+    // Flood-fill from cityName through connected own territories.
+    // Rules:
+    //   - Start at cityName (must be owned by color, must be a city)
+    //   - Each connected own territory adds: its tax value (if city) or 1 (if non-city)
+    //   - Contested territories (active battle queued into them) BREAK the supply line —
+    //     they do not add income and cannot be traversed to reach further territories
     if (!T[cityName] || T[cityName].tax === 0) return 0;
     if (!G.board[cityName]) return 0;
     if (G.board[cityName]?.owner !== color) return 0;
+    if (isContested(cityName)) return 0; // contested city: no income at all
     let yield_ = T[cityName].tax;
     const visited = new Set([cityName]);
     const queue = [cityName];
     while (queue.length) {
         const cur = queue.shift();
         for (const adj of T[cur].adj) {
-            if (!visited.has(adj) && G.board[adj]?.owner === color) {
-                visited.add(adj); queue.push(adj);
-                yield_ += T[adj].tax > 0 ? T[adj].tax : 1;
-            }
+            if (visited.has(adj)) continue;
+            if (G.board[adj]?.owner !== color) continue;
+            if (isContested(adj)) { visited.add(adj); continue; } // contested: yields nothing, blocks supply line
+            visited.add(adj);
+            queue.push(adj);
+            yield_ += T[adj].tax > 0 ? T[adj].tax : 1;
         }
     }
     return yield_;
@@ -1331,7 +1399,7 @@ function decideManeuver(color) {
 function applyFortify(territory, count) {
     if (!G.board[territory]) return;
     G.board[territory].units.F += count;
-    addLog(`Board: +${count} Footmen placed at ${territory}.`);
+    addLog(`FORTIFY: +${count} Footman placed at ${territory} (${count===4?'castle grants +4':'city grants +3'} free Footmen from reserve).`);
 }
 
 function applySpend(color, purchase, placements) {
@@ -1340,6 +1408,7 @@ function applySpend(color, purchase, placements) {
         // Buying a Crown Card: track it separately, add 1 crown
         G.crownCards[color] = (G.crownCards[color]||0) + 1;
         addCrown(color, 1);
+        addLog(`SPEND: ${cName(color)} purchased a Crown Card (+1 Crown, now ${G.crowns[color]||0} total). Crown Card held in reserve.`);
     }
     placements.forEach(p => {
         if (!G.board[p.territory]) return;
@@ -1377,10 +1446,10 @@ function applyNonCombatMove(mv) {
         const cv = crownValueOfCity(mv.to);
         if (cv > 0) {
             G.crowns[mv.color] = (G.crowns[mv.color]||0) + cv;
-            addLog(`${cName(mv.color)} captures ${cityLabel(mv.to)}. +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[mv.color]} total)`);
+            addLog(`${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${cityLabel(mv.to)}. ${cityLabel(mv.to)} is captured and ${cName(mv.color)} gains ${cv} Crown${cv>1?'s':''} (banner now at ${G.crowns[mv.color]}).`);
             checkWin(mv.color);
         } else {
-            addLog(`Board: ${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}.`);
+            addLog(`${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}. ${mv.to} is now owned by ${cName(mv.color)}.`);
         }
         // Assign shield token for new city owner
         const sk = shieldKeyForTerr(mv.to);
@@ -1390,7 +1459,7 @@ function applyNonCombatMove(mv) {
             applyShieldBonus(sk, mv.color, 'capture');
         }
     } else {
-        addLog(`Board: ${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}.`);
+        addLog(`${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to} (${mv.type||'move'}).`);
     }
 }
 function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingColor) {
@@ -1401,7 +1470,7 @@ function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingC
     });
     if (!attackerWon) {
         // Defender held — attacker units destroyed
-        addLog(`Board: ${from} → ${to} — Defender held. Attacker lost.`);
+        addLog(`COMBAT RESULT: Defender holds ${to} — all attacking units from ${from} eliminated.`);
         return;
     }
     // Attacker won — take territory
@@ -1409,7 +1478,7 @@ function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingC
     G.board[to].units = {F:0,A:0,C:0,S:0};
     // Place survivors (we don't know breakdown, so put them as footmen for now)
     G.board[to].units.F = survivorCount;
-    addLog(`Board: ${survivingColor} captures ${to} with ${survivorCount} units.`);
+    addLog(`COMBAT RESULT: ${cName(survivingColor)} captures ${to} with ${survivorCount} surviving unit${survivorCount!==1?'s':''}.`);
 }
 
 
@@ -1651,7 +1720,15 @@ function renderSecondary(el) {
                 🏛 <b>Secondary:</b> ${d.secondary?.name||'?'} (Tax ${d.secondary?.tax||'?'}) <i>— no castle</i><br>
                 💰 <b>Starting coins: 5 + ${d.primary?.tax||0} + ${d.secondary?.tax||0} = <span style="color:var(--accent);font-size:1.1em;">${d.total}</span></b>
             </div></div>`).join('')}
-        <div class="info-box">Place secondary capital units on the board (same counts as shown in Step 3), but <b>no castle</b>. Place <b>1 Crown miniature inside each player's secondary city</b> on the map. Set each player's banner to <b>2 on the Crown Track</b>. Give each player their reserve: 10 Footmen, 4 Archers, 4 Cavalry, 2 Siege Engines, and their starting coins as shown above.</div>
+        <div class="info-box">
+            <b>For each player's secondary city:</b><br>
+            • Place <b>3 Footmen</b> in the secondary capital territory (no castle)<br>
+            • Place <b>2 Footmen</b> in the one adjacent territory shown above for each player<br>
+            • Place <b>1 Crown miniature</b> inside the secondary city on the map<br><br>
+            <b>Crown Track banners:</b> Set each player's banner to <b>2</b>. Exception: the player whose <em>primary</em> capital is <b>Rome</b> starts at <b>3</b> (Rome's Shield token grants +1 Crown).<br><br>
+            <b>Reserves (keep off-board):</b> Give each player 10 Footmen, 4 Archers, 4 Cavalry, 2 Siege Engines.<br>
+            <b>Starting coins:</b> Set each player's coins as shown above.
+        </div>
         <button class="btn-primary" onclick="launchGame()">✓ SETUP COMPLETE — START GAME →</button>
         <button class="btn-secondary" onclick="wizBack()">← Back</button>`;
 }
@@ -1802,7 +1879,7 @@ function launchGame() {
     G.humanCard = null;
     initBoard();
     prepareRound(true);
-    addLog('Game started — Round 1 begins.');
+    addLog('=== GAME STARTED — Round 1 begins. Good luck! ===');
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('game-screen').style.display  = 'block';
     document.getElementById('board-btn').style.display = 'block';
@@ -1818,7 +1895,7 @@ function autoColors_g() { return G.seating.filter(c=>c!==S.playerColor && !(G.el
 function cName(c) { return c===S.playerColor ? 'You' : c.charAt(0).toUpperCase()+c.slice(1); }
 function cAttacks(c) { return c===S.playerColor ? 'You attack' : cName(c)+' attacks'; }
 
-function refillDeck(c) { G.decks[c]=shuffle([...DECK_BASE]); addLog(`${cName(c)} deck reshuffled.`); }
+function refillDeck(c) { G.decks[c]=shuffle([...DECK_BASE]); addLog(`DECK: ${cName(c)} card deck exhausted and reshuffled.`); }
 
 function prepareRound(silent=false) {
     G.roundCombats = []; // fresh each round
@@ -1827,7 +1904,7 @@ function prepareRound(silent=false) {
         const fi = G.firstPlayer;
         G.seating = [fi, ...G.seating.filter(c=>c!==fi)];
         G.slot = 0;
-        if(!silent) addLog(`${cName(fi)} is now First Player.`);
+        if(!silent) addLog(`ROUND START: ${cName(fi)} is now First Player — turn order updated.`);
     }
     autoColors_g().forEach(c => {
         // Draw 2 cards — reshuffle mid-draw if deck runs out (don't discard remaining card)
@@ -1836,7 +1913,7 @@ function prepareRound(silent=false) {
         const card2 = G.decks[c].pop();
         G.hand[c] = [card1, card2];
     });
-    if(!silent) addLog(`Round ${G.round} — cards dealt.`);
+    if(!silent) addLog(`--- Round ${G.round} begins. Cards dealt to all automatons. ---`);
 }
 
 function getTurnOrder() {
@@ -1851,7 +1928,6 @@ function activeColor() {
 
 function addLog(msg) {
     G.logHistory.unshift(msg);
-    if(G.logHistory.length>6) G.logHistory.pop();
     const el = document.getElementById('action-log');
     if(el) el.innerHTML = G.logHistory.slice(0,3).map((m,i)=>
         `<div class="log-entry ${i>0?'old':''}">${i===0?'▶ ':'  '}${m}</div>`).join('');
@@ -1924,7 +2000,7 @@ function checkElimination() {
             // Has cities — safe. Clear any grace period.
             if (G.savedByCrown.has(c)) {
                 G.savedByCrown.delete(c);
-                addLog(`${cName(c)} reclaimed a city — no longer on grace period.`);
+                addLog(`SAVED BY THE CROWN: ${cName(c)} reclaimed ${ownedBy(c).filter(n=>T[n].tax>0).map(cityLabel).join(', ')} — grace period ended.`);
             }
             continue;
         }
@@ -2412,7 +2488,7 @@ function generateSteps(card, color, coins) {
         // BONUS: KING ME — claims first player marker
         G._stepCoinEffects[0] = 'kingme:' + color;
         steps.push(`<b>KING ME (BONUS):</b> ${C} claims the First Player marker. ✓ Check this step to queue the change for next round.`);
-        steps.push(`The change takes effect at the <b>start of next round</b>. The crown icon on ${C}'s tile will pulse yellow.`);
+        steps.push(`The change takes effect at the <b>start of next round</b>. The first player indicator on ${C}'s tile will pulse.`);
         steps.push(null); // ── section divider ──
         // MAIN: TAX OR SPEND — steps start at index 3 (0=kingme, 1=note, 2=null-divider)
         // _stepCoinEffects must use offset indices: spend at [3], tax-city at [4]
@@ -2542,7 +2618,7 @@ function advanceTurn() {
         if (G.humanDeck.length === 0) {
             G.humanDeck = shuffle([...G.humanDiscard]);
             G.humanDiscard = [];
-            addLog('Your deck reshuffled.');
+            addLog('DECK: Your card deck exhausted and reshuffled.');
         }
     }
     BE.movedFrom = new Set(); // clear crossed-off territories for new turn
@@ -3060,7 +3136,7 @@ function beConfirmMove() {
             G.board[to].units[k] = (G.board[to].units[k]||0) + (mu[k]||0);
         }
         if (G.board[to].owner === 'neutral') G.board[to].owner = BE.color;
-        addLog(`Board: ${BE.color} moves ${desc} from ${from} → ${to}.`);
+        addLog(`BOARD EDIT: ${cName(BE.color)} moves ${desc} from ${from} to ${to} (manually queued via board editor).`);
     }
 
     if (!BE.movedFrom) BE.movedFrom = new Set();
@@ -3526,7 +3602,7 @@ function closeCombat(){
                 if (cv > 0) {
                     if (!G.crowns) G.crowns = {};
                     G.crowns[b.color] = (G.crowns[b.color]||0) + cv;
-                    addLog(`${cName(b.color)} captures ${b.to}. +${cv} Crown${cv>1?'s':''}! (${G.crowns[b.color]} total)`);
+                    addLog(`${cName(b.color)} moves ${unitStr(b.movingUnits||{})} from ${b.from} to ${cityLabel(b.to)}. ${cityLabel(b.to)} is captured and ${cName(b.color)} gains ${cv} Crown${cv>1?'s':''} (banner now at ${G.crowns[b.color]}).`);
                     checkWin(b.color);
                 }
                 if (CITY_SHIELDS[b.to]) {
@@ -3799,8 +3875,8 @@ function humanExpandToOpts(from) {
         needsSiege: G.board[n].owner !== 'neutral' && G.board[n].castle && !hasSiege
     }));
 }
-function humanSplitExpandToOpts(from) {
-    const pc = S.playerColor, seen = new Set(), results = [];
+function humanSplitExpandToOpts(from, excludedDests=[]) {
+    const pc = S.playerColor, seen = new Set(excludedDests), results = [];
     const hasSiege = (G.board[from]?.units?.S||0) > 0;
     function canTarget(n) {
         if (!G.board[n]) return false;
@@ -3899,7 +3975,7 @@ function buildHumanFlow(card, variant) {
     const hasBerlin = !!(G.shields && G.shields['Berlin'] === pc);
     const steps = [];
     function mk(type, label, optional=false) {
-        const compound = ['expand','split_expand','maneuver','siege'].includes(type);
+        const compound = ['expand','split_expand','split_expand_1','split_expand_2','maneuver','siege'].includes(type);
         return {type, label, optional, state: compound ? 'pick_from' : 'pending', from:null, to:null, summary:null, boardReminder:null};
     }
     function addExpand(lbl) { steps.push(mk('expand', lbl||'EXPAND — choose your move')); }
@@ -3911,7 +3987,11 @@ function buildHumanFlow(card, variant) {
         else                  steps.push(mk('spend','SPEND — choose a purchase'));
     }
     else if (card === 'SPLIT EXPAND OR MANEUVER') {
-        if (variant==='SPLIT_EXPAND') { steps.push(mk('split_expand','SPLIT EXPAND — choose your move')); addBerlinBonus(); }
+        if (variant==='SPLIT_EXPAND') {
+            steps.push(mk('split_expand_1','SPLIT EXPAND — Destination 1 (choose territory and units)'));
+            steps.push(mk('split_expand_2','SPLIT EXPAND — Destination 2 (choose territory and units)'));
+            addBerlinBonus();
+        }
         else addManeuver();
     }
     else if (card === 'KING ME / TAX OR SPEND') {
@@ -4103,7 +4183,17 @@ function hfPickDest(idx, to) {
     const isSiege = step.type === 'siege';
     const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
     const totalAvail = totalUnitCount(from);
-    const maxMove = totalAvail - 1; // must leave 1 behind
+    // For split expand, total across both steps must leave 1 behind
+    // If this is step 2, subtract what step 1 already committed
+    let alreadyCommitted = 0;
+    if (step.type === 'split_expand_2' || step.type === 'split_expand_1') {
+        (G.humanFlow||[]).forEach((s,si) => {
+            if (si !== (G.humanFlow||[]).indexOf(step) && (s.type==='split_expand_1'||s.type==='split_expand_2') && s.pendingUnits) {
+                alreadyCommitted += (s.pendingUnits.F||0)+(s.pendingUnits.A||0)+(s.pendingUnits.C||0)+(s.pendingUnits.S||0);
+            }
+        });
+    }
+    const maxMove = totalAvail - 1 - alreadyCommitted; // must leave 1 behind total
 
     // Default: move everything movable (matching previous behaviour as starting point)
     const defaultUnits = isSiege ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
@@ -4120,7 +4210,15 @@ function hfAdjUnit(idx, k, delta) {
     const from = step.from;
     const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
     const totalAvail = totalUnitCount(from);
-    const maxMove = totalAvail - 1;
+    let _committed2 = 0;
+    if (step.type === 'split_expand_2' || step.type === 'split_expand_1') {
+        (G.humanFlow||[]).forEach((s,si) => {
+            if (s !== step && (s.type==='split_expand_1'||s.type==='split_expand_2') && s.pendingUnits) {
+                _committed2 += (s.pendingUnits.F||0)+(s.pendingUnits.A||0)+(s.pendingUnits.C||0)+(s.pendingUnits.S||0);
+            }
+        });
+    }
+    const maxMove = totalAvail - 1 - _committed2;
     const pu = step.pendingUnits;
     const totalMoving = (pu.F||0)+(pu.A||0)+(pu.C||0)+(pu.S||0);
     const newVal = (pu[k]||0) + delta;
@@ -4160,9 +4258,9 @@ function hfSelectTo(idx, to, moving) {
     step.state='done'; step.to=to;
     step.summary=`${from} → ${to} (${unitStr(moving)}). ${result.outcome}`;
     step.boardReminder=result.boardReminder;
-    if (result.type==='capture_crown') addLog(`You captured ${to} (+${result.crowns} crown${result.crowns>1?'s':''}!)`);
-    else if (result.type==='capture')  addLog(`You captured ${to}.`);
-    else if (result.type==='combat')   addLog(`⚔ Attack queued: ${from} → ${to}. Resolves in Combat Phase.`);
+    if (result.type==='capture_crown') addLog(`You move ${unitStr(moving)} from ${from} to ${cityLabel(to)}. ${cityLabel(to)} is captured and you gain ${result.crowns} Crown${result.crowns>1?'s':''} (banner now at ${G.crowns[S.playerColor]}).`);
+    else if (result.type==='capture')  addLog(`You move ${unitStr(moving)} from ${from} to ${to}. ${to} is captured.`);
+    else if (result.type==='combat')   addLog(`You move ${unitStr(moving)} from ${from} and attack ${to}. Battle queued — resolves in Combat Phase.`);
     render();
     renderHumanTurn();
 }
@@ -4356,6 +4454,8 @@ function renderFlowStepBody(step, idx) {
         }
 
         case 'expand':
+        case 'split_expand_1':
+        case 'split_expand_2':
         case 'split_expand':
         case 'maneuver':
         case 'siege': {
@@ -4437,7 +4537,13 @@ function renderFlowStepBody(step, idx) {
                 const moving = step.type==='siege' ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
                 let toOpts;
                 if (step.type==='siege')         toOpts = humanSiegeToOpts(from);
-                else if (step.type==='split_expand') toOpts = humanSplitExpandToOpts(from);
+                else if (step.type==='split_expand_1'||step.type==='split_expand_2'||step.type==='split_expand') {
+                    // Exclude destinations already picked by sibling split_expand steps
+                    const usedDests = (G.humanFlow||[])
+                        .filter((s,si) => si!==idx && (s.type==='split_expand_1'||s.type==='split_expand_2'||s.type==='split_expand') && s.to)
+                        .map(s=>s.to);
+                    toOpts = humanSplitExpandToOpts(from, usedDests);
+                }
                 else if (step.type==='maneuver') toOpts = humanManeuverToOpts(from);
                 else                             toOpts = humanExpandToOpts(from); // all adjacent
                 if (!toOpts.length) {
@@ -5253,17 +5359,17 @@ function applyBattleResult(b, result) {
         if (cv > 0) {
             if (!G.crowns) G.crowns = {};
             G.crowns[b.color] = (G.crowns[b.color]||0) + cv;
-            addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}. +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[b.color]} total)`);
+            addLog(`${cName(b.color)} moves ${unitStr(b.movingUnits||{})} from ${b.from} to ${cityLabel(b.to)}. ${cityLabel(b.to)} is captured from ${cName(defColor)} and ${cName(b.color)} gains ${cv} Crown${cv>1?'s':''} (banner now at ${G.crowns[b.color]}). ${unitStr(result.attUnits)} remain in ${b.to}.`);
             checkWin(b.color);
         } else {
-            addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}.`);
+            addLog(`${cName(b.color)} moves ${unitStr(b.movingUnits||{})} from ${b.from} to ${b.to}. ${b.to} is captured from ${cName(defColor)}. ${unitStr(result.attUnits)} remain in ${b.to}.`);
         }
         // Assign shield token and fire reminder
         const _bsk = shieldKeyForTerr(b.to);
         if (_bsk) {
             if (!G.shields) G.shields = {};
             G.shields[_bsk] = b.color;
-            addLog('🛡 ' + cName(b.color) + ' gains the ' + cityLabel(b.to) + ' shield.');
+            addLog(`🛡 SHIELD GAINED: ${cName(b.color)} now holds the ${cityLabel(b.to)} shield token (captured via combat).`);
             showShieldReminder(_bsk, b.color);
         }
         // Stockholm shield (attacker wins any battle)
@@ -5276,7 +5382,7 @@ function applyBattleResult(b, result) {
                 G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
             });
         }
-        addLog(`${cName(defColor)} holds ${b.to} against ${cName(b.color)}.`);
+        addLog(`${cName(b.color)} attacks ${b.to} with ${unitStr(b.movingUnits||{})} from ${b.from}. ${cName(defColor)} holds ${b.to} — all attacking units are eliminated.`);
     } else {
         // Both wiped — territory goes neutral (source already cleared for human attacks)
         G.board[b.to].units = {F:0,A:0,C:0,S:0};
@@ -5286,7 +5392,7 @@ function applyBattleResult(b, result) {
                 G.board[b.from].units[k] = Math.max(0, (G.board[b.from].units[k]||0) - (b.movingUnits?.[k]||0));
             });
         }
-        addLog(`${b.to}: both sides eliminated — territory neutral.`);
+        addLog(`${cName(b.color)} attacks ${b.to} with ${unitStr(b.movingUnits||{})} from ${b.from}. Both sides are eliminated — ${b.to} reverts to neutral.`);
     }
 }
 
@@ -5294,6 +5400,139 @@ function applyBattleResult(b, result) {
 // ================================================================
 // INIT
 // ================================================================
+// ── Full Log ──────────────────────────────────────────────────
+function openFullLog() {
+    const el = document.getElementById('full-log-body');
+    if (!el || !G.logHistory) return;
+    el.innerHTML = G.logHistory.map((m,i) =>
+        `<div class="full-log-entry ${i>0?'old':''}">${i===0?'▶ ':'  '}${m}</div>`
+    ).join('');
+    document.getElementById('full-log-overlay').style.display = 'flex';
+}
+function closeFullLog() {
+    document.getElementById('full-log-overlay').style.display = 'none';
+}
+
+// ================================================================
+// SAVE / LOAD  (localStorage, 3 named slots + export/import)
+// ================================================================
+const SAVE_SLOTS = ['Slot 1', 'Slot 2', 'Slot 3'];
+const SAVE_KEY   = (slot) => 'riskEurope_save_' + slot.replace(' ', '_');
+
+// Serialise G + S to JSON, converting Sets → arrays
+function serialiseState() {
+    function replacer(key, val) {
+        if (val instanceof Set) return { __type:'Set', values:[...val] };
+        return val;
+    }
+    return JSON.stringify({ G, S }, replacer);
+}
+
+// Deserialise, converting Set-arrays back
+function deserialiseState(json) {
+    function reviver(key, val) {
+        if (val && val.__type === 'Set') return new Set(val.values);
+        return val;
+    }
+    return JSON.parse(json, reviver);
+}
+
+function slSave(slot) {
+    if (!G.round) { alert('No game in progress to save.'); return; }
+    const data = {
+        savedAt: new Date().toLocaleString(),
+        round: G.round,
+        playerColor: S.playerColor,
+        state: serialiseState()
+    };
+    localStorage.setItem(SAVE_KEY(slot), JSON.stringify(data));
+    addLog('Game saved to ' + slot + '.');
+    renderSaveSlots();
+}
+
+function slLoad(slot) {
+    const raw = localStorage.getItem(SAVE_KEY(slot));
+    if (!raw) { alert('No save found in ' + slot + '.'); return; }
+    if (!confirm('Load ' + slot + '? Unsaved progress will be lost.')) return;
+    try {
+        const data = JSON.parse(raw);
+        const { G: savedG, S: savedS } = deserialiseState(data.state);
+        Object.assign(G, savedG);
+        Object.assign(S, savedS);
+        document.getElementById('setup-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display  = 'block';
+        document.getElementById('board-btn').style.display    = 'block';
+        closeSaveLoad();
+        render();
+        addLog('Game loaded from ' + slot + ' (Round ' + G.round + ').');
+    } catch(e) {
+        alert('Failed to load save: ' + e.message);
+    }
+}
+
+function slDelete(slot) {
+    if (!confirm('Delete save in ' + slot + '?')) return;
+    localStorage.removeItem(SAVE_KEY(slot));
+    renderSaveSlots();
+}
+
+function slExport() {
+    if (!G.round) { alert('No game in progress to export.'); return; }
+    const json = serialiseState();
+    document.getElementById('sl-json').value = json;
+    document.getElementById('sl-json').select();
+    try { document.execCommand('copy'); } catch(e) {}
+}
+
+function slImport() {
+    const json = document.getElementById('sl-json').value.trim();
+    if (!json) { alert('Paste exported save data into the text box first.'); return; }
+    if (!confirm('Import this save? Current game will be replaced.')) return;
+    try {
+        const { G: savedG, S: savedS } = deserialiseState(json);
+        Object.assign(G, savedG);
+        Object.assign(S, savedS);
+        document.getElementById('setup-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display  = 'block';
+        document.getElementById('board-btn').style.display    = 'block';
+        closeSaveLoad();
+        render();
+        addLog('Game imported successfully (Round ' + G.round + ').');
+    } catch(e) {
+        alert('Import failed — invalid save data.\n' + e.message);
+    }
+}
+
+function renderSaveSlots() {
+    const el = document.getElementById('saveload-slots');
+    if (!el) return;
+    el.innerHTML = SAVE_SLOTS.map(slot => {
+        const raw  = localStorage.getItem(SAVE_KEY(slot));
+        const data = raw ? JSON.parse(raw) : null;
+        const info = data
+            ? `<div class="slot-name">${slot}</div><div class="slot-meta">Round ${data.round} · ${data.playerColor?.toUpperCase()} · ${data.savedAt}</div>`
+            : `<div class="slot-name">${slot}</div><div class="slot-meta" style="color:#bbb;">Empty</div>`;
+        const gameActive = !!(G.round);
+        return `<div class="save-slot">
+            <div class="save-slot-info">${info}</div>
+            <div class="save-slot-btns">
+                <button class="sl-btn save" onclick="slSave('${slot}')" ${gameActive?'':'disabled'} title="Save current game here">Save</button>
+                <button class="sl-btn load" onclick="slLoad('${slot}')" ${data?'':'disabled'} title="Load this save">Load</button>
+                <button class="sl-btn del"  onclick="slDelete('${slot}')" ${data?'':'disabled'} title="Delete this save">✕</button>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function openSaveLoad() {
+    renderSaveSlots();
+    document.getElementById('sl-json').value = '';
+    document.getElementById('saveload-overlay').style.display = 'flex';
+}
+function closeSaveLoad() {
+    document.getElementById('saveload-overlay').style.display = 'none';
+}
+
 showStep(0);
 </script>
 
