@@ -1542,7 +1542,49 @@ function renderWelcome(el) {
             • <b>Kingdom Missions variant is NOT used.</b> Crown Cards stay in the deck face-down — when purchased they give 1 Crown exactly as printed. Do NOT use the mission side.<br>
             • Each player starts with their banner at <b>2 on the Crown Track</b> and places <b>1 Crown miniature in each of their 2 starting cities</b>. (Exception: if you start with Rome, your banner starts at 3 — the extra Crown comes from Rome's Shield token, not an extra miniature on the board.)
         </div>
-        <button class="btn-primary" onclick="wizNext()">BEGIN SETUP →</button>`;
+        <button class="btn-primary" onclick="wizNext()">BEGIN SETUP →</button>
+        ${renderWelcomeLoadSlots()}`;
+}
+
+function renderWelcomeLoadSlots() {
+    const slots = ['Slot 1','Slot 2','Slot 3'];
+    const saves = slots.map(s => {
+        const raw = localStorage.getItem('riskEurope_save_' + s.replace(' ','_'));
+        return raw ? { slot:s, ...JSON.parse(raw) } : null;
+    }).filter(Boolean);
+    if (!saves.length) return '';
+    const cards = saves.map(d => `
+        <div class="save-slot" style="margin-bottom:8px;">
+            <div class="save-slot-info">
+                <div class="slot-name">${d.slot}</div>
+                <div class="slot-meta">Round ${d.round} · ${d.playerColor?.toUpperCase()} · ${d.savedAt}</div>
+            </div>
+            <div class="save-slot-btns">
+                <button class="sl-btn load" onclick="slLoadFromWelcome('${d.slot}')">Load</button>
+            </div>
+        </div>`).join('');
+    return `<div style="margin-top:18px;border-top:2px solid var(--border);padding-top:14px;">
+        <div style="font-family:'Cinzel',serif;font-size:0.85em;font-weight:700;color:var(--ink);margin-bottom:10px;">&#x1F4BE; Continue a Previous Game</div>
+        ${cards}
+    </div>`;
+}
+
+function slLoadFromWelcome(slot) {
+    const raw = localStorage.getItem('riskEurope_save_' + slot.replace(' ','_'));
+    if (!raw) { alert('Save not found.'); return; }
+    try {
+        const data = JSON.parse(raw);
+        const { G: savedG, S: savedS } = deserialiseState(data.state);
+        Object.assign(G, savedG);
+        Object.assign(S, savedS);
+        document.getElementById('setup-screen').style.display = 'none';
+        document.getElementById('game-screen').style.display  = 'block';
+        document.getElementById('board-btn').style.display    = 'block';
+        render();
+        addLog('Game loaded from ' + slot + ' (Round ' + G.round + ').');
+    } catch(e) {
+        alert('Failed to load: ' + e.message);
+    }
 }
 
 function renderChooseColor(el) {
@@ -2202,66 +2244,64 @@ function generateSteps(card, color, coins) {
     G.pendingMove = null; // legacy — points to last move for combat dialog use
     G._stepCoinEffects = {};
 
-    // Compute the specific expand/split/maneuver move
-    const expandDec = decideExpand(color);
-    const maneuverDec = decideManeuver(color);
-    const posDec = decidePosition(color);
-    
-    let EXPAND;
-    if (expandDec) {
-        const leave = leaveBehindCount(expandDec.from);
-        const moving = unitsToMove(expandDec.from, expandDec.movable, expandDec.hasCastle);
-        const leaveUnits = unitsToLeave(expandDec.from, leave);
-        G.pendingMove = { type:'expand', color, from:expandDec.from, to:expandDec.to,
-            movingUnits:moving, movable:expandDec.movable, isEnemy:expandDec.isEnemy };
-        G.pendingMoves.push(G.pendingMove);
-        const moveDetail = `Move <b>${unitStr(moving)}</b> from <b>${expandDec.from}</b> → <b>${expandDec.to}</b>`;
-        const leaveDetail = `Leave <b>${unitStr(leaveUnits)}</b> at ${expandDec.from}`;
-        const combatStep = expandDec.isEnemy
-            ? renderCombatDialog(G.pendingMove)
-            : null;
-        const hasBerlinShield = CITY_SHIELDS['Berlin']?.trigger === 'expand_spend' && G.shields?.['Berlin'] === color;
-        const berlinReminder = hasBerlinShield
-            ? `<div class="shield-reminder">${color === S.playerColor ? CITY_SHIELDS['Berlin'].reminder : '🛡 BERLIN SHIELD: ' + cName(color) + ' expands then also maneuvers (bonus action). Castles cost 3 fewer coins.'}</div>`
-            : null;
-        // Berlin automa: queue a bonus maneuver after the expand
-        if (hasBerlinShield && color !== S.playerColor) {
-            const bonusManeuver = decideManeuver(color);
-            if (bonusManeuver) {
-                const bmMoving = unitsToMove(bonusManeuver.from, bonusManeuver.movable, false);
-                G.pendingMoves.push({ type:'maneuver', color, from:bonusManeuver.from, to:bonusManeuver.to, movingUnits:bmMoving, _berlinBonus:true });
+    // EXPAND block is only built for cards that include a movement action.
+    // TAX OR SPEND and KING ME / TAX OR SPEND never move — building it early
+    // was causing phantom moves to be queued in pendingMoves and applied silently.
+    function buildExpandBlock() {
+        const expandDec  = decideExpand(color);
+        const maneuverDec = decideManeuver(color);
+        const posDec     = decidePosition(color);
+        let EXPAND;
+        if (expandDec) {
+            const leave = leaveBehindCount(expandDec.from);
+            const moving = unitsToMove(expandDec.from, expandDec.movable, expandDec.hasCastle);
+            const leaveUnits = unitsToLeave(expandDec.from, leave);
+            G.pendingMove = { type:'expand', color, from:expandDec.from, to:expandDec.to,
+                movingUnits:moving, movable:expandDec.movable, isEnemy:expandDec.isEnemy };
+            G.pendingMoves.push(G.pendingMove);
+            const moveDetail = `Move <b>${unitStr(moving)}</b> from <b>${expandDec.from}</b> → <b>${expandDec.to}</b>`;
+            const leaveDetail = `Leave <b>${unitStr(leaveUnits)}</b> at ${expandDec.from}`;
+            const combatStep = expandDec.isEnemy ? renderCombatDialog(G.pendingMove) : null;
+            const hasBerlinShield = CITY_SHIELDS['Berlin']?.trigger === 'expand_spend' && G.shields?.['Berlin'] === color;
+            const berlinReminder = hasBerlinShield
+                ? `<div class="shield-reminder">${color === S.playerColor ? CITY_SHIELDS['Berlin'].reminder : '🛡 BERLIN SHIELD: ' + cName(color) + ' expands then also maneuvers (bonus action). Castles cost 3 fewer coins.'}</div>`
+                : null;
+            if (hasBerlinShield && color !== S.playerColor) {
+                const bonusManeuver = decideManeuver(color);
+                if (bonusManeuver) {
+                    const bmMoving = unitsToMove(bonusManeuver.from, bonusManeuver.movable, false);
+                    G.pendingMoves.push({ type:'maneuver', color, from:bonusManeuver.from, to:bonusManeuver.to, movingUnits:bmMoving, _berlinBonus:true });
+                }
             }
+            EXPAND = [
+                `<b>EXPAND:</b> ${moveDetail}.<br>${leaveDetail} (leave-behind rule: ${T[expandDec.from].tax>0?'Tax value '+T[expandDec.from].tax:'1 unit for non-urban'}).
+                 <span class="rule-note">Target: ${expandDec.to} (Tax ${expandDec.tax}${expandDec.isEnemy?', ENEMY: '+expandDec.defenders+' defenders':', '+(G.board[expandDec.to].owner==='neutral'?'neutral':'friendly')+'.'})${expandDec.hasCastle?' ⚠ Has castle — Siege Engine required.':''}</span>`,
+                ...(berlinReminder ? [berlinReminder] : []),
+                ...(combatStep ? [combatStep] : []),
+            ];
+        } else if (posDec) {
+            const posMoving = unitsToMove(posDec.from, posDec.movable, false);
+            G.pendingMove = { type:'position', color, from:posDec.from, to:posDec.to, movingUnits:posMoving };
+            G.pendingMoves.push(G.pendingMove);
+            EXPAND = [
+                `<b>NO DIRECT CITY ENTRY POSSIBLE — POSITION:</b> Move <b>${unitStr(posMoving)}</b> from <b>${posDec.from}</b> → <b>${posDec.to}</b> (moving toward <b>${posDec.toward}</b>).
+                <span class="rule-note">Leave-behind: ${T[posDec.from].tax>0?'Tax value '+T[posDec.from].tax+' units':'1 unit'} at ${posDec.from}.</span>`,
+            ];
+        } else if (maneuverDec) {
+            const moving = unitsToMove(maneuverDec.from, maneuverDec.movable, false);
+            G.pendingMove = { type:'maneuver', color, from:maneuverDec.from, to:maneuverDec.to, movingUnits:moving };
+            G.pendingMoves.push(G.pendingMove);
+            const hopsNote = maneuverDec.reason?.includes('2-step') ? ' (2-step move through own territory)' : '';
+            EXPAND = [
+                `<b>MANEUVER:</b> Move <b>${unitStr(moving)}</b> from <b>${maneuverDec.from}</b> → <b>${maneuverDec.to}</b>${hopsNote}.
+                <span class="rule-note">${maneuverDec.reason}</span>`,
+            ];
+        } else {
+            G.pendingMove = { type:'none' };
+            G.pendingMoves.push(G.pendingMove);
+            EXPAND = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver this action. No pieces to move. ✓ and continue.`];
         }
-        EXPAND = [
-            `<b>EXPAND:</b> ${moveDetail}.<br>${leaveDetail} (leave-behind rule: ${T[expandDec.from].tax>0?'Tax value '+T[expandDec.from].tax:'1 unit for non-urban'}).
-             <span class="rule-note">Target: ${expandDec.to} (Tax ${expandDec.tax}${expandDec.isEnemy?', ENEMY: '+expandDec.defenders+' defenders':', '+(G.board[expandDec.to].owner==='neutral'?'neutral':'friendly')+'.'})${expandDec.hasCastle?' ⚠ Has castle — Siege Engine required.':''}</span>`,
-            ...(berlinReminder ? [berlinReminder] : []),
-            ...(combatStep ? [combatStep] : []),
-        ];
-    } else if (posDec) {
-        const posMoving = unitsToMove(posDec.from, posDec.movable, false);
-        G.pendingMove = { type:'position', color, from:posDec.from, to:posDec.to, movingUnits:posMoving };
-        G.pendingMoves.push(G.pendingMove);
-        const leaveN2 = leaveBehindCount(posDec.from);
-        EXPAND = [
-            `<b>NO DIRECT CITY ENTRY POSSIBLE — POSITION:</b> Move <b>${unitStr(posMoving)}</b> from <b>${posDec.from}</b> → <b>${posDec.to}</b> (moving toward <b>${posDec.toward}</b>).
-            <span class="rule-note">Leave-behind: ${T[posDec.from].tax>0?'Tax value '+T[posDec.from].tax+' units':1+' unit'} at ${posDec.from}.</span>`,
-        ];
-    } else if (maneuverDec) {
-        const moving = unitsToMove(maneuverDec.from, maneuverDec.movable, false);
-        G.pendingMove = { type:'maneuver', color, from:maneuverDec.from, to:maneuverDec.to, movingUnits:moving };
-        G.pendingMoves.push(G.pendingMove);
-        const hopsNote = maneuverDec.reason?.includes('2-step') ? ' (2-step move through own territory)' : '';
-        EXPAND = [
-            `<b>MANEUVER:</b> Move <b>${unitStr(moving)}</b> from <b>${maneuverDec.from}</b> → <b>${maneuverDec.to}</b>${hopsNote}.
-            <span class="rule-note">${maneuverDec.reason}</span>`,
-        ];
-    } else {
-        G.pendingMove = { type:'none' };
-        G.pendingMoves.push(G.pendingMove);
-        EXPAND = [
-            `<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver this action. No pieces to move. ✓ and continue.`,
-        ];
+        return EXPAND;
     }
 
     if (card === "TAX OR SPEND") {
@@ -2368,13 +2408,14 @@ function generateSteps(card, color, coins) {
             if (splitDec.isEnemy) steps.push(renderCombatDialog(G.pendingMove));
         } else {
             // Rule: if no city can be entered, MANEUVER only — not expand or position
-            if (maneuverDec) {
-                const mMov = unitsToMove(maneuverDec.from, maneuverDec.movable, false);
-                G.pendingMove = { type:'maneuver', color, from:maneuverDec.from, to:maneuverDec.to, movingUnits:mMov };
+            const _manDec = decideManeuver(color);
+            if (_manDec) {
+                const mMov = unitsToMove(_manDec.from, _manDec.movable, false);
+                G.pendingMove = { type:'maneuver', color, from:_manDec.from, to:_manDec.to, movingUnits:mMov };
                 G.pendingMoves.push(G.pendingMove);
-                const hNote = maneuverDec.reason?.includes('2-step') ? ' (2-step)' : '';
-                steps.push(`<b>NO CITY REACHABLE — MANEUVER:</b> Move <b>${unitStr(mMov)}</b> from <b>${maneuverDec.from}</b> → <b>${maneuverDec.to}</b>${hNote}.
-                <span class="rule-note">${maneuverDec.reason}</span>`);
+                const hNote = _manDec.reason?.includes('2-step') ? ' (2-step)' : '';
+                steps.push(`<b>NO CITY REACHABLE — MANEUVER:</b> Move <b>${unitStr(mMov)}</b> from <b>${_manDec.from}</b> → <b>${_manDec.to}</b>${hNote}.
+                <span class="rule-note">${_manDec.reason}</span>`);
             } else {
                 G.pendingMove = { type:'none' }; G.pendingMoves.push(G.pendingMove);
                 steps.push(`<b>NO MOVE POSSIBLE</b> — ${C} cannot Split Expand or Maneuver. ✓ and continue.`);
@@ -2480,7 +2521,7 @@ function generateSteps(card, color, coins) {
             steps.push(`<b>SIEGE ASSAULT: No Siege Engine available</b> — ${C} has no siege engines on the board. Skip to EXPAND/MANEUVER below.`);
         }
         steps.push(null); // ── section divider ──
-        steps.push(...EXPAND);
+        steps.push(...buildExpandBlock());
         return steps;
     }
 
