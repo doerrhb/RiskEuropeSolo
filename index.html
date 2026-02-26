@@ -856,6 +856,37 @@ const T = {
 // ── Shield key lookup by territory name ─────────────────────────
 // CITY_SHIELDS keys are city names; board keys are territory names.
 // Use these helpers everywhere a shield needs to be looked up by territory.
+// ================================================================
+// COMPONENT SUPPLY TRACKING
+// ================================================================
+// Risk Europe box counts (per-color for army units; shared for castles/crown cards)
+const BOX_SUPPLY = { F:40, A:12, C:12, S:4, Castle:16, CrownCard:8 };
+
+// Compute how many of each component are left in the reserve (not on board)
+function computeSupply() {
+    const onBoard = {};
+    ['orange','green','purple','blue'].forEach(c => { onBoard[c] = {F:0,A:0,C:0,S:0}; });
+    let castlesOnBoard = 0;
+    for (const cell of Object.values(G.board||{})) {
+        const owner = cell.owner;
+        if (owner && owner !== 'neutral' && onBoard[owner]) {
+            ['F','A','C','S'].forEach(k => { onBoard[owner][k] += (cell.units?.[k]||0); });
+        }
+        if (cell.castle) castlesOnBoard++;
+    }
+    const crownCardsUsed = Object.values(G.crownCards||{}).reduce((s,n)=>s+n, 0);
+    const army = {};
+    ['orange','green','purple','blue'].forEach(c => {
+        army[c] = {};
+        ['F','A','C','S'].forEach(k => { army[c][k] = Math.max(0, BOX_SUPPLY[k] - onBoard[c][k]); });
+    });
+    return {
+        army,
+        Castle:    Math.max(0, BOX_SUPPLY.Castle    - castlesOnBoard),
+        CrownCard: Math.max(0, BOX_SUPPLY.CrownCard - crownCardsUsed),
+    };
+}
+
 function shieldKeyForTerr(terrName) {
     // Returns the CITY_SHIELDS key (city name) for a given territory, or null
     if (!terrName) return null;
@@ -1517,12 +1548,21 @@ function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingC
 
 
 function getBestSpend(coins, color) {
+    // WIN CONDITION CHECK: if buying a Crown Card (12 coins) would reach 7 crowns, do it
+    const currentCrowns = (G.crowns?.[color]||0);
+    const crownCardCost = (color && G.shields?.['Berlin'] === color && color !== S.playerColor) ? 9 : 12;
+    if (currentCrowns + 1 >= 7 && coins >= crownCardCost) {
+        return { cost: crownCardCost, items: '1 Crown Card', crownCard: true };
+    }
     // Berlin shield: castles cost 3 fewer coins — simulate by adding 3 to purchasing power
     // so the automa can access castle purchases it otherwise couldn't afford
     const berlinBonus = (color && G.shields?.['Berlin'] === color && color !== S.playerColor) ? 3 : 0;
     const effectiveCoins = coins + berlinBonus;
+    const castleSupply = computeSupply().Castle;
     const keys = Object.keys(SPEND_TABLE).map(Number).sort((a,b)=>b-a);
-    const k = keys.find(k => k <= effectiveCoins);
+    // If castles are exhausted, skip rows that require a castle
+    const eligibleKeys = castleSupply > 0 ? keys : keys.filter(k => !SPEND_TABLE[k].includes('Castle'));
+    const k = eligibleKeys.find(k => k <= effectiveCoins);
     const result = k ? { cost:k, items:SPEND_TABLE[k] } : { cost:5, items:SPEND_TABLE[5] };
     // Adjust actual cost if a castle was in the purchase and Berlin discount applies
     if (berlinBonus > 0 && result.items.includes('Castle')) {
@@ -1572,11 +1612,10 @@ function renderWelcome(el) {
         • For each automaton turn, this app reveals their card and shows a <b>numbered checklist</b> of exactly what to move.<br>
         • Tap each step as you carry it out on the board. When all steps are done, tap <b>Complete Turn</b>.<br>
         • The app handles turn order, coin tracking, and deck reshuffling automatically.</div>
-        <div class="info-box"><b>You win</b> by reaching 7 Crowns first. There are two crown components on the board:<br>• <b>Crown miniatures</b> — placed inside cities on the map. They mark that city as a crown city (worth 1 Crown when captured). They stay in the city permanently.<br>• <b>Colored banners on the Crown Track</b> — track your total crown score. Move your banner up when you capture a crown city or buy a Crown Card. This app tracks your banner position in the player bar.</div>
         <div class="info-box" style="border-color:var(--gold);background:rgba(200,149,42,0.08);">
             <b>⚠ Before you begin:</b><br>
             • <b>Kingdom Missions variant is NOT used.</b> Crown Cards stay in the deck face-down — when purchased they give 1 Crown exactly as printed. Do NOT use the mission side.<br>
-            • Each player starts with their banner at <b>2 on the Crown Track</b> and places <b>1 Crown miniature in each of their 2 starting cities</b>. (Exception: if you start with Rome, your banner starts at 3 — the extra Crown comes from Rome's Shield token, not an extra miniature on the board.)
+            • Each player starts with their banner at <b>2 on the Crown Track</b> and places <b>1 Crown miniature in each of their 2 starting cities</b>.
         </div>
         <button class="btn-primary" onclick="wizNext()">BEGIN SETUP →</button>
         ${renderWelcomeLoadSlots()}`;
@@ -2524,7 +2563,7 @@ function generateSteps(card, color, coins) {
             // Track crown card flag on purchase
             if (purchase.crownCard) G._pendingCrownCard = color;
             steps.push(`<b>MODE: SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase:<span class="buy-highlight">${items}</span>Cost: <b>${cost} coins.</b> ✓ Check this step to automatically deduct the cost.
-                <span class="rule-note">If a figure type runs out: substitute 2 Footmen ↔ 1 Archer. Never buy Crown Cards unless no Castles remain in supply.</span>`);
+`);
             placements.forEach((p,i) => {
                 const curr = totalUnitCount(p.territory);
                 if (p.type === 'castle') {
@@ -2586,7 +2625,7 @@ function generateSteps(card, color, coins) {
         if (fortDec) G.pendingMoves.push({ type:'fortify', territory:fortDec.territory, count:fortDec.count });
         G.pendingFortify = fortDec; // legacy
         steps.push(`<b>FORTIFY:</b> Add <b>+${fortCount} Footmen</b> to <b>${fortTerr}</b> (currently ${currCount} units${fortDec&&G.board[fortTerr]?.castle?' — has castle':''}). Take them from the supply.
-            <span class="rule-note">${fortDec&&fortDec.hasCastle?'+4 Footmen because this location has a castle.':'+3 Footmen to a city.'} Priority: fewest units → highest Tax → Capital beats city → roll die.</span>`);
+            <span class="rule-note">${fortDec&&fortDec.hasCastle?'+4 Footmen (castle bonus).':'+3 Footmen to a city.'}</span>`);
         steps.push(null); // ── section divider ──
 
         // ── CRITICAL: recompute expand/position/maneuver AFTER applying fortify ──
@@ -2721,7 +2760,7 @@ function generateSteps(card, color, coins) {
             G.pendingMoves.push(G.pendingMove);
             G._stepCoinEffects[3] = -cost; // step index 3 = header+spend combined
             steps.push(`<b>SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase: <span class="buy-highlight">${items}</span> Cost: <b>${cost} coins.</b> ✓ Check to deduct.
-                <span class="rule-note">If a figure type runs out: substitute 2 Footmen ↔ 1 Archer.</span>`);
+`);
             placements.forEach(p => {
                 const curr = totalUnitCount(p.territory);
                 if (p.type === 'castle') {
@@ -4122,7 +4161,7 @@ function generateHumanSteps(card, variant) {
         if (doFortify) {
             steps.push({ id:'board', text:
                 '<b>FORTIFY (BONUS):</b> Place <b>+3 Footmen</b> (or <b>+4</b> if the chosen city has a castle) in one of your cities.<br>'
-                + '<span class="rule-note">Priority: fewest units → highest Tax value → Capital beats regular city → roll a die on a tie. Update board state.</span>' });
+                + '<span class="rule-note">Choose the city with fewest units (ties: highest Tax, then Capital over regular city). Update board state.</span>' });
         }
         const doExpand = variant === 'FORTIFY_EXPAND' || variant === 'EXPAND';
         if (doExpand) pushExpand(doFortify ? 'remaining' : null);
@@ -4351,21 +4390,26 @@ function buildHumanFlow(card, variant) {
 
 // ── Action handlers ────────────────────────────────────────────
 // Unit costs for free-form spend builder
-const UNIT_COSTS = { F:1, A:2, C:3, S:10, Castle:12 };
+const UNIT_COSTS = { F:1, A:2, C:3, S:10, Castle:12, CrownCard:12 };
 function humanCastleCost() {
     // Berlin shield: castles cost 3 fewer coins for the castle-holder
     const hasBerlin = !!(G.shields && G.shields['Berlin'] === S.playerColor);
     return hasBerlin ? 9 : 12;
 }
-const UNIT_NAMES = { F:'Footman', A:'Archer', C:'Cavalry', S:'Siege Engine', Castle:'Castle' };
-const UNIT_PLURAL= { F:'Footmen', A:'Archers', C:'Cavalry', S:'Siege Engines', Castle:'Castles' };
-const MIN_SPEND  = 5;
+function humanCrownCardCost() {
+    // Crown Card substitutes a Castle when castles run out — same base cost, same Berlin discount
+    return humanCastleCost();
+}
+const UNIT_NAMES = { F:'Footman', A:'Archer', C:'Cavalry', S:'Siege Engine', Castle:'Castle', CrownCard:'Crown Card' };
+const UNIT_PLURAL= { F:'Footmen', A:'Archers', C:'Cavalry', S:'Siege Engines', Castle:'Castles', CrownCard:'Crown Cards' };
+const MIN_SPEND  = 1; // No minimum for humans — SPEND_TABLE minimum is automa-only
 
 function spendCartTotal() {
     const cart = G.humanSpendCart || {};
     return Object.entries(cart).reduce((s,[k,n]) => {
-        const cost = k==='Castle' ? humanCastleCost() : (UNIT_COSTS[k]||0);
-        return s + cost*n;
+        if (k === 'Castle')     return s + humanCastleCost() * n;
+        if (k === 'CrownCard')  return s + humanCrownCardCost() * n;
+        return s + (UNIT_COSTS[k]||0) * n;
     }, 0);
 }
 function spendCartSummary(cart) {
@@ -4373,10 +4417,10 @@ function spendCartSummary(cart) {
         .map(([k,n]) => `${n} ${n===1?UNIT_NAMES[k]:UNIT_PLURAL[k]}`).join(' + ') || '—';
 }
 function hfSpendAdjust(k, delta) {
-    if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+    if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0,CrownCard:0};
     const coins   = G.coins[S.playerColor]||0;
     const current = G.humanSpendCart[k]||0;
-    const cost    = k === 'Castle' ? humanCastleCost() : (UNIT_COSTS[k]||1);
+    const cost    = k === 'Castle' ? humanCastleCost() : k === 'CrownCard' ? humanCrownCardCost() : (UNIT_COSTS[k]||1);
     const newVal  = current + delta;
     if (newVal < 0) return;
     const newTotal = spendCartTotal() - current*cost + newVal*cost;
@@ -4393,11 +4437,18 @@ function hfSpendApply(idx) {
     if (!step) return;
     // Deduct coins immediately
     G.coins[pc] = Math.max(0, (G.coins[pc]||0) - total);
+    // Crown Card purchase: award +1 Crown immediately, no physical placement needed
+    if ((cart.CrownCard||0) > 0) {
+        G.crownCards[pc] = (G.crownCards[pc]||0) + (cart.CrownCard||0);
+        addCrown(pc, cart.CrownCard);
+        addLog(`👑 CROWN CARD: You purchased ${cart.CrownCard} Crown Card${cart.CrownCard>1?'s':''} — +${cart.CrownCard} Crown${cart.CrownCard>1?'s':''}! (now ${G.crowns[pc]} total)`);
+    }
     // Constantinople shield: bonus 4 Footmen to place alongside Siege Engine
     const hasCon = (cart.S>0) && CITY_SHIELDS['Constantinople']?.trigger==='spend' && G.shields?.['Constantinople']===pc;
     const toPlace = {
         F: (cart.F||0) + (hasCon ? 4 : 0),
         A: cart.A||0, C: cart.C||0, S: cart.S||0, Castle: cart.Castle||0
+        // CrownCard has no physical placement
     };
     step.toPlace     = {...toPlace};       // original totals
     step.remaining   = {...toPlace};       // countdown as player allocates
@@ -4406,8 +4457,13 @@ function hfSpendApply(idx) {
     step.conShield   = hasCon;
     step.spentCoins  = total;
     step.spentSummary= spendCartSummary(cart);
-    step.state       = 'place_units';
-    G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+    const nothingToPlace = Object.values(toPlace).every(n => !n);
+    step.state       = nothingToPlace ? 'done' : 'place_units';
+    if (nothingToPlace) {
+        step.summary = `Spent ${total} coins on ${spendCartSummary(cart)}.`;
+        step.boardReminder = null;
+    }
+    G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0,CrownCard:0};
     render();
     renderHumanTurn();
 }
@@ -4716,29 +4772,40 @@ function renderFlowStepBody(step, idx) {
             }
             // ── Builder sub-state (default) ──────────────────────────────
             const coins = G.coins[pc]||0;
-            if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0};
+            if (!G.humanSpendCart) G.humanSpendCart = {F:0,A:0,C:0,S:0,Castle:0,CrownCard:0};
             const cart  = G.humanSpendCart;
             const total = spendCartTotal();
             const left  = coins - total;
             const canApply = total >= MIN_SPEND;
 
+            // Live supply: what's still in the box reserve
+            const _sup = computeSupply();
+            const _pSup = _sup.army[pc] || {F:0,A:0,C:0,S:0};
+            const castlesLeft    = _sup.Castle;
+            const crownCardsLeft = _sup.CrownCard;
+
             const rows = [
-                {k:'F',      plural:'Footmen',       cost:1 , multi:true },
-                {k:'A',      plural:'Archers',       cost:2 , multi:true },
-                {k:'C',      plural:'Cavalry',       cost:3 , multi:true },
-                {k:'S',      plural:'Siege Engines', cost:10, multi:true },
-                {k:'Castle', plural:'Castles',       cost:humanCastleCost(), multi:false},
+                {k:'F',      plural:'Footmen',       cost:1,  multi:true,  supplyLeft:_pSup.F},
+                {k:'A',      plural:'Archers',       cost:2,  multi:true,  supplyLeft:_pSup.A},
+                {k:'C',      plural:'Cavalry',       cost:3,  multi:true,  supplyLeft:_pSup.C},
+                {k:'S',      plural:'Siege Engines', cost:10, multi:true,  supplyLeft:_pSup.S},
+                ...(castlesLeft > 0 ? [{k:'Castle',    plural:'Castles',     cost:humanCastleCost(),    multi:false, supplyLeft:castlesLeft}] : []),
+                ...(castlesLeft === 0 ? [{k:'CrownCard', plural:'Crown Cards', cost:humanCrownCardCost(), multi:false, supplyLeft:crownCardsLeft, note:'👑 +1 Crown — Castles exhausted'}] : []),
             ];
             const rowsHTML = rows.map(r => {
                 const qty     = cart[r.k]||0;
-                const canAdd  = left >= r.cost && (r.multi || qty < 1);
+                const supCap  = r.supplyLeft !== undefined ? r.supplyLeft : 999;
+                const canAdd  = left >= r.cost && (r.multi || qty < 1) && qty < supCap;
                 const canSub  = qty > 0;
                 const addDis  = canAdd  ? '' : ' disabled';
                 const subDis  = canSub  ? '' : ' disabled';
                 const addCol  = canAdd  ? '#1a7a3c' : '#ccc';
                 const subCol  = canSub  ? '#8b1a1a' : '#ccc';
+                const supNote = (r.supplyLeft !== undefined && r.supplyLeft <= 8)
+                    ? `<span style="font-size:0.72em;color:${r.supplyLeft===0?'#c0392b':'#888'};margin-left:6px;">${r.supplyLeft} left</span>` : '';
+                const noteHtml = r.note ? `<div style="font-size:0.72em;color:#1a7a3c;margin-top:1px;">${r.note}</div>` : '';
                 return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f0ede8;">
-                    <div style="flex:1;font-size:0.88em;"><b>${r.plural}</b> <span style="color:var(--ink-light);font-size:0.8em;">${r.cost} coin${r.cost>1?'s':''} each</span></div>
+                    <div style="flex:1;font-size:0.88em;"><b>${r.plural}</b> <span style="color:var(--ink-light);font-size:0.8em;">${r.cost} coin${r.cost>1?'s':''} each</span>${supNote}${noteHtml}</div>
                     <button onclick="hfSpendAdjust('${r.k}',-1)"${subDis} style="width:30px;height:30px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:1.1em;cursor:pointer;font-weight:700;color:${subCol}">−</button>
                     <div style="width:24px;text-align:center;font-size:1em;font-weight:700;">${qty||0}</div>
                     <button onclick="hfSpendAdjust('${r.k}',1)"${addDis} style="width:30px;height:30px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:1.1em;cursor:pointer;font-weight:700;color:${addCol}">+</button>
@@ -4754,10 +4821,9 @@ function renderFlowStepBody(step, idx) {
                 </div>
             </div>`;
 
-            const minNote = (total > 0 && total < MIN_SPEND)
-                ? `<div style="font-size:0.78em;color:#c0392b;margin:2px 0 6px;">Minimum spend is ${MIN_SPEND} coins — need ${MIN_SPEND-total} more.</div>` : '';
+            const minNote = '';
 
-            const applyBtn = `<button class="hcp-confirm" onclick="hfSpendApply(${idx})" ${canApply?'':'disabled'}>✓ Spend ${total} coin${total!==1?'s':''}${canApply?'':' (min 5 required)'}</button>`;
+            const applyBtn = `<button class="hcp-confirm" onclick="hfSpendApply(${idx})" ${canApply?'':'disabled'}>✓ Spend ${total} coin${total!==1?'s':''}</button>`;
             const skipBtn  = `<button class="btn-retreat" style="margin-top:6px;font-size:0.8em;" onclick="hfSkip(${idx})">Skip — don't spend this action</button>`;
 
             return `<div style="font-size:0.8em;color:var(--ink-light);margin-bottom:6px;">You have <b>${coins} coins</b>. Build your purchase (1 coin = 1 Footman):</div>
