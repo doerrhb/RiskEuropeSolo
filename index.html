@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Risk Europe: Solo Companion</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=UnifrakturMaguntia&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
         :root {
             --parchment: #f7eed8; --parchment-dark: #eedfc0; --ink: #1e140a; --ink-light: #4a3020;
             --accent: #8b1a1a; --gold: #c8952a; --gold-light: #f0c060;
@@ -742,8 +742,18 @@
                     <tr><td>19</td><td>2 Footmen + 2 Archers + 1 Cavalry + 1 Siege Engine</td></tr>
                     <tr><td>20</td><td>3 Footmen + 1 Archer + 1 Cavalry + 1 Castle</td></tr>
                 </table>
-                <br>No castles left in supply → buy 1 Crown Card + 2 Footmen instead.<br>
-                Missing a figure type → substitute 2 Footmen ↔ 1 Archer. Keep leftover coins.
+                </table>
+                <br>Missing a figure type → substitute 2 Footmen ↔ 1 Archer. Keep leftover coins.
+                <br><br>
+                <b>⚠ Crown Card override (any coin count):</b><br>
+                <table>
+                    <tr><th>Condition</th><th>Purchase</th></tr>
+                    <tr style="background:rgba(139,26,26,0.07);">
+                        <td>6 Crowns &amp; ≥10 coins</td>
+                        <td>1 Crown Card (10 coins) — <b>wins the game</b></td>
+                    </tr>
+                </table>
+                <span style="font-size:0.85em;color:var(--ink-light);">Crown Cards cost 10 coins and are always available. An automaton will buy one instead of their normal purchase the moment it would give them 7 Crowns.</span>
             </div>
         </div>
 
@@ -1630,11 +1640,10 @@ function renderWelcome(el) {
             <img src="logo.png" alt="Risk: Europe"
                  style="width:75%;max-width:420px;height:auto;display:inline-block;"
                  onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
-            <div style="display:none;font-family:'UnifrakturMaguntia','Palatino Linotype',serif;
-                        font-size:clamp(1.8em,8vw,3em);font-weight:700;
-                        color:var(--ink);letter-spacing:0.04em;line-height:1.1;
-                        text-shadow:1px 1px 0 rgba(0,0,0,0.15);">
-                &#x211B;isk: &#x20A4;urope
+            <div style="display:none;font-family:'Cinzel',serif;font-size:clamp(2.4em,10vw,3.8em);
+                        font-weight:700;color:var(--accent);letter-spacing:0.06em;line-height:1.1;
+                        text-shadow:2px 3px 8px rgba(0,0,0,0.35),0 1px 0 rgba(0,0,0,0.2);">
+                Risk: Europe
             </div>
         </div>
         <div class="setup-title">Welcome, Commander</div>
@@ -2386,6 +2395,13 @@ function dismissRoundReminder() {
     G._roundReminderDismissed = G.round;
     const el = document.getElementById('round-reminder');
     if (el) el.style.display = 'none';
+    const revBtn = document.getElementById('reveal-btn');
+    if (revBtn) {
+        revBtn.disabled = false;
+        revBtn.style.opacity = '1';
+        revBtn.style.cursor  = 'pointer';
+        revBtn.title = '';
+    }
 }
 
 function revealAction() {
@@ -3056,6 +3072,13 @@ function render() {
         if (rrEl) {
             const needsReminder = G.slot === 0 && G.step === 1 && G._roundReminderDismissed !== G.round;
             rrEl.style.display = needsReminder ? 'block' : 'none';
+            // Ghost reveal button until reminder is confirmed
+            if (revBtn) {
+                revBtn.disabled = needsReminder;
+                revBtn.style.opacity = needsReminder ? '0.35' : '1';
+                revBtn.style.cursor  = needsReminder ? 'not-allowed' : 'pointer';
+                revBtn.title = needsReminder ? 'Select your Order Cards first' : '';
+            }
         }
     } else {
         // AI turn, card revealed — always re-render steps panel
