@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Risk Europe: Solo Companion</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=UnifrakturMaguntia&display=swap');
         :root {
             --parchment: #f7eed8; --parchment-dark: #eedfc0; --ink: #1e140a; --ink-light: #4a3020;
             --accent: #8b1a1a; --gold: #c8952a; --gold-light: #f0c060;
@@ -619,7 +619,6 @@
     <div class="game-header">
         <span class="gh-round" id="round-display">ROUND 1</span>
         <span class="gh-step"  id="step-display">ACTION 1 of 2</span>
-        <button class="save-btn" onclick="openSaveLoad()">💾 Save / Load</button>
     </div>
     <div id="saveload-overlay" class="saveload-overlay" style="display:none">
         <div class="saveload-modal">
@@ -662,6 +661,12 @@
             <div class="steps-header" id="steps-header">STEPS TO PERFORM</div>
             <div class="steps-progress"><div class="steps-progress-fill" id="steps-progress-fill" style="width:0%"></div></div>
             <div id="steps-list"></div>
+        </div>
+
+        <div style="margin-top:10px;margin-bottom:10px;">
+            <button class="btn-advance" id="complete-btn" onclick="advanceTurn()" disabled>
+                ✓ COMPLETE TURN — NEXT PLAYER
+            </button>
         </div>
 
         <div class="ref-toggle">
@@ -737,14 +742,21 @@
             </div>
         </div>
 
-        <div style="margin-top: 12px;">
-            <button class="btn-advance" id="complete-btn" onclick="advanceTurn()" disabled>
-                ✓ COMPLETE TURN — NEXT PLAYER
+        <div class="ref-toggle" id="game-tools-toggle">
+            <button class="ref-toggle-btn" onclick="toggleRef('ref-tools')">
+                🛠 Game Tools <span class="arrow">▼</span>
             </button>
-            <div id="stuck-hint" style="display:none;text-align:center;margin-top:4px;">
-                <button onclick="forceAdvance()" style="background:none;border:none;color:var(--ink-light);font-size:0.75em;cursor:pointer;text-decoration:underline;">Stuck? Force advance turn →</button>
+            <div class="ref-body" id="ref-tools">
+                <div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
+                    <button onclick="openBoardEditor()" style="text-align:left;background:none;border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);cursor:pointer;">🗺 Board State Editor</button>
+                    <button onclick="openSaveLoad()" style="text-align:left;background:none;border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);cursor:pointer;">💾 Save / Load Game</button>
+                    <div id="stuck-hint" style="display:none;">
+                        <button onclick="forceAdvance()" style="width:100%;text-align:left;background:none;border:1px solid #e0a020;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#996600;cursor:pointer;">⏩ Force Advance Turn</button>
+                    </div>
+                    <button onclick="forceAdvance()" style="text-align:left;background:none;border:1px solid #e0a020;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#996600;cursor:pointer;">⏩ Force Advance Turn</button>
+                    <button onclick="confirmReset()" style="text-align:left;background:none;border:1px solid #c0392b;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#c0392b;cursor:pointer;">↺ Reset Game</button>
+                </div>
             </div>
-            <button class="btn-reset" onclick="confirmReset()">↺ Full Reset / Return to Setup</button>
         </div>
     </div>
 </div>
@@ -1548,11 +1560,10 @@ function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingC
 
 
 function getBestSpend(coins, color) {
-    // WIN CONDITION CHECK: if buying a Crown Card (12 coins) would reach 7 crowns, do it
+    // WIN CONDITION: Crown Cards cost 10, always available, preferred over any other purchase
     const currentCrowns = (G.crowns?.[color]||0);
-    const crownCardCost = (color && G.shields?.['Berlin'] === color && color !== S.playerColor) ? 9 : 12;
-    if (currentCrowns + 1 >= 7 && coins >= crownCardCost) {
-        return { cost: crownCardCost, items: '1 Crown Card', crownCard: true };
+    if (currentCrowns + 1 >= 7 && coins >= 10) {
+        return { cost: 10, items: '1 Crown Card', crownCard: true };
     }
     // Berlin shield: castles cost 3 fewer coins — simulate by adding 3 to purchasing power
     // so the automa can access castle purchases it otherwise couldn't afford
@@ -1605,6 +1616,17 @@ function wizBack() { if(S.step>0) showStep(S.step-1); }
 
 function renderWelcome(el) {
     el.innerHTML = `
+        <div style="text-align:center;margin-bottom:16px;">
+            <img src="logo.png" alt="Risk: Europe"
+                 style="width:75%;max-width:420px;height:auto;display:inline-block;"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display='block';">
+            <div style="display:none;font-family:'UnifrakturMaguntia','Palatino Linotype',serif;
+                        font-size:clamp(1.8em,8vw,3em);font-weight:700;
+                        color:var(--ink);letter-spacing:0.04em;line-height:1.1;
+                        text-shadow:1px 1px 0 rgba(0,0,0,0.15);">
+                &#x211B;isk: &#x20A4;urope
+            </div>
+        </div>
         <div class="setup-title">Welcome, Commander</div>
         <div class="setup-sub">This app runs the <b>3 Automaton players</b> so you can play Risk Europe solo. It draws their cards and tells you exactly what to do on the board each turn.</div>
         <div class="info-box"><b>How it works:</b><br>
@@ -2252,12 +2274,44 @@ function checkElimination() {
     }
 }
 function checkWin(c) {
-    if (!G.crowns) return;
-    if ((G.crowns[c]||0) >= 7 && !G.winner) {
-        G.winner = c;
-        // Show winner banner — defer slightly so any current render finishes first
-        setTimeout(showWinnerScreen, 50);
+    // Flag that win-check is needed; resolveWin() does final determination at end of round
+    if (G.crowns && (G.crowns[c]||0) >= 7) G._winCheckNeeded = true;
+}
+
+function resolveWin() {
+    if (!G.crowns || G.winner) return;
+    const candidates = (G.seating||[]).filter(c =>
+        !G.eliminated?.has(c) && (G.crowns[c]||0) >= 7
+    );
+    if (!candidates.length) { G._winCheckNeeded = false; return; }
+    if (candidates.length === 1) {
+        G.winner = candidates[0];
+        G._tiebreakNote = null;
+    } else {
+        // Tie-break 1: most territories
+        const terrCount = c => Object.keys(G.board||{}).filter(n => G.board[n].owner === c).length;
+        const maxTerr = Math.max(...candidates.map(terrCount));
+        let remaining = candidates.filter(c => terrCount(c) === maxTerr);
+        if (remaining.length === 1) {
+            G.winner = remaining[0];
+            G._tiebreakNote = 'Tied on crowns — most territories wins.';
+        } else {
+            // Tie-break 2: most coins
+            const maxCoins = Math.max(...remaining.map(c => G.coins[c]||0));
+            remaining = remaining.filter(c => (G.coins[c]||0) === maxCoins);
+            if (remaining.length === 1) {
+                G.winner = remaining[0];
+                G._tiebreakNote = 'Tied on crowns and territories — most coins wins.';
+            } else {
+                // Tie-break 3: first player marker holder
+                const fp = G.firstPlayer;
+                G.winner = remaining.includes(fp) ? fp : remaining[0];
+                G._tiebreakNote = 'Tied on crowns, territories, and coins — First Player marker wins.';
+            }
+        }
     }
+    G._winCheckNeeded = false;
+    setTimeout(showWinnerScreen, 50);
 }
 
 function showWinnerScreen() {
@@ -2271,6 +2325,8 @@ function showWinnerScreen() {
     const sub = isHuman
         ? `You reached ${G.crowns[c]} crowns. Congratulations!`
         : `${cName(c)} reached ${G.crowns[c]} crowns.`;
+    const tieNote = G._tiebreakNote
+        ? `<div style="margin-top:6px;font-size:0.78em;color:var(--ink-light);font-style:italic;">${G._tiebreakNote}</div>` : '';
 
     // Overlay the entire screen
     let el = document.getElementById('winner-overlay');
@@ -2284,7 +2340,7 @@ function showWinnerScreen() {
         padding:36px 28px;max-width:360px;width:90%;text-align:center;box-shadow:0 0 60px ${hex}88;">
         <div style="font-size:3em;margin-bottom:8px;">👑</div>
         <div style="font-family:Cinzel,serif;font-size:1.6em;font-weight:700;color:${hex};margin-bottom:8px;">${who}</div>
-        <div style="font-size:1em;color:var(--ink-light);margin-bottom:24px;">${sub}</div>
+        <div style="font-size:1em;color:var(--ink-light);margin-bottom:24px;">${sub}${tieNote}</div>
         <button onclick="confirmReset()" style="background:${hex};color:${txt};border:none;border-radius:8px;
             padding:13px 28px;font-family:Cinzel,serif;font-size:1em;font-weight:700;cursor:pointer;width:100%;">
             ↺ New Game
@@ -2873,6 +2929,7 @@ function advanceTurn() {
             } else {
                 G.round++;
                 checkElimination();
+                resolveWin();
                 if (!G.winner) prepareRound(false);
             }
         }
@@ -4397,8 +4454,7 @@ function humanCastleCost() {
     return hasBerlin ? 9 : 12;
 }
 function humanCrownCardCost() {
-    // Crown Card substitutes a Castle when castles run out — same base cost, same Berlin discount
-    return humanCastleCost();
+    return 10; // Crown Cards always cost 10 coins; not tied to castle supply
 }
 const UNIT_NAMES = { F:'Footman', A:'Archer', C:'Cavalry', S:'Siege Engine', Castle:'Castle', CrownCard:'Crown Card' };
 const UNIT_PLURAL= { F:'Footmen', A:'Archers', C:'Cavalry', S:'Siege Engines', Castle:'Castles', CrownCard:'Crown Cards' };
@@ -4790,12 +4846,13 @@ function renderFlowStepBody(step, idx) {
                 {k:'C',      plural:'Cavalry',       cost:3,  multi:true,  supplyLeft:_pSup.C},
                 {k:'S',      plural:'Siege Engines', cost:10, multi:true,  supplyLeft:_pSup.S},
                 ...(castlesLeft > 0 ? [{k:'Castle',    plural:'Castles',     cost:humanCastleCost(),    multi:false, supplyLeft:castlesLeft}] : []),
-                ...(castlesLeft === 0 ? [{k:'CrownCard', plural:'Crown Cards', cost:humanCrownCardCost(), multi:false, supplyLeft:crownCardsLeft, note:'👑 +1 Crown — Castles exhausted'}] : []),
+                {k:'CrownCard', plural:'Crown Cards', cost:10, multi:false, supplyLeft:crownCardsLeft, maxQty:1, note:'👑 +1 Crown immediately · max 1 per turn'},
             ];
             const rowsHTML = rows.map(r => {
                 const qty     = cart[r.k]||0;
                 const supCap  = r.supplyLeft !== undefined ? r.supplyLeft : 999;
-                const canAdd  = left >= r.cost && (r.multi || qty < 1) && qty < supCap;
+                const hardCap = r.maxQty !== undefined ? r.maxQty : (r.multi ? 999 : 1);
+                const canAdd  = left >= r.cost && qty < supCap && qty < hardCap;
                 const canSub  = qty > 0;
                 const addDis  = canAdd  ? '' : ' disabled';
                 const subDis  = canSub  ? '' : ' disabled';
@@ -5445,6 +5502,7 @@ function closeCombatPhase() {
     G.roundCombats = [];
     // Check for player elimination before starting next round
     checkElimination();
+    resolveWin();
     // G.round was already incremented in advanceTurn before openCombatPhase was called
     if (!G.winner) prepareRound(false);
     render();
@@ -5952,9 +6010,8 @@ showStep(0);
 </script>
 
 <!-- BOARD EDITOR OVERLAY -->
-<button class="board-btn" onclick="openBoardEditor()" id="board-btn" style="display:none">
-    🗺 Board State
-</button>
+<!-- board-btn hidden; Board State Editor is now in Game Tools panel -->
+<button id="board-btn" style="display:none" onclick="openBoardEditor()"></button>
 <div class="board-overlay" id="board-overlay">
   <div class="board-modal">
     <div class="board-modal-header">
