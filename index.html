@@ -647,6 +647,11 @@
     </div>
     <div class="players-bar" id="player-bar"></div>
     <div class="action-area">
+        <div id="round-reminder" style="display:none;margin-bottom:10px;background:rgba(200,149,42,0.13);border:2px solid var(--gold);border-radius:8px;padding:12px 14px;">
+            <div style="font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);margin-bottom:6px;">🃏 NEW ROUND — Select Your Order Cards</div>
+            <div style="font-size:0.82em;color:var(--ink-light);margin-bottom:10px;">Choose your <b>2 Order Cards</b> for this round and place them <b>face-down</b> in front of you before any cards are revealed.</div>
+            <button onclick="dismissRoundReminder()" style="width:100%;padding:9px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;cursor:pointer;">✓ Cards selected — continue</button>
+        </div>
         <div id="ai-view">
             <div class="action-card unrevealed" id="card-display">
                 Tap button to reveal<br><span class="card-sub">Automaton card is face-down</span>
@@ -755,6 +760,11 @@
                     </div>
                     <button onclick="forceAdvance()" style="text-align:left;background:none;border:1px solid #e0a020;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#996600;cursor:pointer;">⏩ Force Advance Turn</button>
                     <button onclick="confirmReset()" style="text-align:left;background:none;border:1px solid #c0392b;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#c0392b;cursor:pointer;">↺ Reset Game</button>
+                    <hr style="border:none;border-top:1px solid var(--border-light);margin:4px 0;">
+                    <a href="solo_rules/rules.html" target="_blank" rel="noopener"
+                       style="display:block;text-align:left;background:none;border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);text-decoration:none;">📖 Solo Rules (English)</a>
+                    <a href="https://boardgamegeek.com/filepage/264495/risk-europe-solo-francais" target="_blank" rel="noopener"
+                       style="display:block;text-align:left;background:none;border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);text-decoration:none;">📖 Règles Solo (Français · BGG)</a>
                 </div>
             </div>
         </div>
@@ -2372,6 +2382,12 @@ function toggleRef(id) {
 // ================================================================
 // REVEAL & STEPS
 // ================================================================
+function dismissRoundReminder() {
+    G._roundReminderDismissed = G.round;
+    const el = document.getElementById('round-reminder');
+    if (el) el.style.display = 'none';
+}
+
 function revealAction() {
     if (G.winner) { showWinnerScreen(); return; }
     const color = activeColor();
@@ -3035,6 +3051,12 @@ function render() {
         if(revBtn) revBtn.style.display='block';
         document.getElementById('steps-panel').style.display='none';
         document.getElementById('complete-btn').disabled = true;
+        // Show card-selection reminder at the very start of each round (slot 0, step 1)
+        const rrEl = document.getElementById('round-reminder');
+        if (rrEl) {
+            const needsReminder = G.slot === 0 && G.step === 1 && G._roundReminderDismissed !== G.round;
+            rrEl.style.display = needsReminder ? 'block' : 'none';
+        }
     } else {
         // AI turn, card revealed — always re-render steps panel
         // (handles case where render() is called after reveal without re-generating steps)
