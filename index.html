@@ -794,8 +794,8 @@ const CAPITALS = [
     { name:"France",       city:"Paris",          tax:3, units:3, adjOptions:[{name:"Normandy",units:2},{name:"Lorraine",units:2},{name:"Navarre",units:2},{name:"Burgundy",units:2}] },
     { name:"England",      city:"London",         tax:3, units:3, adjOptions:[{name:"Wales",units:2},{name:"Normandy",units:2},{name:"Scotland",units:2}] },
     { name:"Sweden",       city:"Stockholm",      tax:3, units:3, adjOptions:[{name:"Norway",units:2},{name:"Denmark",units:2},{name:"Finland",units:2}] },
-    { name:"Rusland",      city:"Kiev",           tax:2, units:2, adjOptions:[{name:"Galicia",units:3},{name:"Polotsk",units:3},{name:"Smolensk",units:3},{name:"Poland",units:3}] },
-    { name:"Rome",         city:"Rome",           tax:4, units:3, adjOptions:[{name:"Lombardy",units:2},{name:"Kingdom of Sicily",units:2}] },
+    { name:"Rusland",      city:"Kiev",           tax:2, units:2, adjOptions:[{name:"Galicia",units:2},{name:"Polotsk",units:2},{name:"Smolensk",units:2},{name:"Poland",units:2}] },
+    { name:"Rome",         city:"Rome",           tax:4, units:3, adjOptions:[{name:"Lombardy",units:2},{name:"Kingdom of Sicily",units:2},{name:"Sardinia",units:2}] },
     { name:"Saxony",       city:"Berlin",         tax:4, units:3, adjOptions:[{name:"Friesland",units:2},{name:"Lorraine",units:2},{name:"Franconia",units:2},{name:"Bohemia",units:2},{name:"Denmark",units:2}] },
     { name:"Turkey",       city:"Constantinople", tax:3, units:3, adjOptions:[{name:"Bulgaria",units:2},{name:"Greece",units:2}] },
 ];
@@ -1016,7 +1016,8 @@ function initBoard() {
             // Place adjacent units for secondary capital — must be a non-city territory (same rule as setup picker)
             const secAdj = (secondary.adjOptions||[]).find(a => !(T[a.name]?.tax > 0));
             if (secAdj) {
-                const adjUnits = Math.max(0, 5 - secondary.units);
+                // Adjacent territory always gets 2 units (never 5-city, which breaks Kiev/Rusland)
+                const adjUnits = secAdj.units || 2;
                 if (adjUnits > 0) setBoardTerr(secAdj.name, color, {F:adjUnits,A:0,C:0,S:0}, false);
             }
         }
@@ -1030,6 +1031,7 @@ function initBoard() {
         // Use player's chosen adjacent territory (S.playerPrimaryAdj), fall back to _adj or first option
         const priAdjName = S.playerPrimaryAdj || pc._adj?.name || pc.adjOptions?.[0]?.name;
         if (priAdjName) {
+            // Human freely distributes 5 footmen — adj gets whatever wasn't placed in the city
             const adjU = Math.max(0, 5 - priUnits);
             if (adjU > 0) setBoardTerr(priAdjName, S.playerColor, {F:adjU, A:0,C:0,S:0}, false);
         }
@@ -1040,6 +1042,7 @@ function initBoard() {
         // Use player's chosen adjacent territory (S.playerSecondaryAdj), fall back to first option
         const secAdjName = S.playerSecondaryAdj || ps.adjOptions?.[0]?.name;
         if (secAdjName) {
+            // Human freely distributes 5 footmen — adj gets whatever wasn't placed in the city
             const secAdjU = Math.max(0, 5 - secUnits);
             if (secAdjU > 0) setBoardTerr(secAdjName, S.playerColor, {F:secAdjU, A:0,C:0,S:0}, false);
         }
@@ -1840,6 +1843,7 @@ function renderPlayerCapital(el) {
 function renderPlayerCapDetail() {
     const cap = S.playerCapital; if (!cap) return '';
     const primary = S.playerPrimaryUnits !== undefined ? S.playerPrimaryUnits : 3;
+    // Human freely distributes 5 footmen between city and adj territory (any split)
     const adjUnits = Math.max(0, 5 - primary);
     const isRome = cap.name === 'Rome';
     const startCrowns = isRome ? 3 : 2;
@@ -1883,7 +1887,7 @@ function renderPlayerCapDetail() {
         <button class="btn-primary" ${S.playerPrimaryAdj?'':'disabled'} onclick="wizNext()">UNITS PLACED →</button>`;
 }
 function changePlayerUnits(v) {
-    S.playerPrimaryUnits = Math.max(0, Math.min(5, (S.playerPrimaryUnits||3) + v));
+    S.playerPrimaryUnits = Math.max(1, Math.min(5, (S.playerPrimaryUnits||3) + v));
     renderPlayerCapital(document.getElementById('wiz-body'));
 }
 function pickPrimaryAdj(name) {
@@ -1938,6 +1942,7 @@ function renderSecondary(el) {
     S.coinsData = coinsData;
 
     const secUnits = S.playerSecondaryUnits ?? 3;
+    // Human freely distributes 5 footmen between secondary city and adj territory (any split)
     const adjUnits = Math.max(0, 5 - secUnits);
     // Setup rule: adjacent starting territory MUST be a non-city (non-urban) territory
     const adjOpts  = ps ? (ps.adjOptions||[]).filter(a => !allPlacedNames.has(a.name) && !(T[a.name]?.tax > 0)) : [];
@@ -2004,7 +2009,7 @@ function renderSecondary(el) {
 }
 
 function changeSecUnits(v) {
-    S.playerSecondaryUnits = Math.max(0, Math.min(5, (S.playerSecondaryUnits ?? 3) + v));
+    S.playerSecondaryUnits = Math.max(1, Math.min(5, (S.playerSecondaryUnits ?? 3) + v));
     renderSecondary(document.getElementById('wiz-body'));
 }
 function pickSecAdj(name) {
