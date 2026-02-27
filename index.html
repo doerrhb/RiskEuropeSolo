@@ -1568,18 +1568,22 @@ function getBestSpend(coins, color) {
     if (currentCrowns + 1 >= 7 && coins >= 10) {
         return { cost: 10, items: '1 Crown Card', crownCard: true };
     }
-    // Berlin shield: castles cost 3 fewer coins — simulate by adding 3 to purchasing power
-    // so the automa can access castle purchases it otherwise couldn't afford
-    const berlinBonus = (color && G.shields?.['Berlin'] === color && color !== S.playerColor) ? 3 : 0;
-    const effectiveCoins = coins + berlinBonus;
+    // Berlin shield: castles cost 3 fewer coins.
+    // Only inflate purchasing power for rows that actually contain a Castle,
+    // to avoid selecting an unaffordable non-castle row with the inflated budget.
+    const hasBerlin = (color && G.shields?.['Berlin'] === color && color !== S.playerColor);
     const castleSupply = computeSupply().Castle;
     const keys = Object.keys(SPEND_TABLE).map(Number).sort((a,b)=>b-a);
-    // If castles are exhausted, skip rows that require a castle
-    const eligibleKeys = castleSupply > 0 ? keys : keys.filter(k => !SPEND_TABLE[k].includes('Castle'));
-    const k = eligibleKeys.find(k => k <= effectiveCoins);
+    // Build eligible keys: for castle rows use (coins+3) budget if Berlin; for others use real coins
+    const eligibleKeys = keys.filter(k => {
+        if (castleSupply <= 0 && SPEND_TABLE[k].includes('Castle')) return false;
+        const budget = (hasBerlin && SPEND_TABLE[k].includes('Castle')) ? coins + 3 : coins;
+        return k <= budget;
+    });
+    const k = eligibleKeys[0]; // already sorted descending — best affordable row
     const result = k ? { cost:k, items:SPEND_TABLE[k] } : { cost:5, items:SPEND_TABLE[5] };
-    // Adjust actual cost if a castle was in the purchase and Berlin discount applies
-    if (berlinBonus > 0 && result.items.includes('Castle')) {
+    // Apply Berlin discount if the chosen row has a Castle
+    if (hasBerlin && result.items.includes('Castle')) {
         result.cost = Math.max(result.cost - 3, 0);
         result._berlinDiscount = true;
     }
