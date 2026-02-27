@@ -192,6 +192,8 @@
 
         /* REFERENCE */
         .ref-toggle { background: rgba(255,252,245,0.9); border: 1px solid var(--border-light); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .action-area ul, .action-area li { list-style: none; margin: 0; padding: 0; }
+        details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
         .ref-toggle-btn { width: 100%; padding: 9px 14px; background: none; border: none; cursor: pointer;
                           display: flex; justify-content: space-between; align-items: center;
                           font-family: 'Cinzel',serif; font-size: 0.76em; font-weight: 700; letter-spacing: 0.06em;
@@ -210,7 +212,6 @@
         }
     
         /* BOARD EDITOR */
-        .board-btn { position:fixed; bottom:16px; right:16px; z-index:100; background:var(--ink); color:var(--gold-light); border:2px solid var(--gold); border-radius:50px; padding:10px 18px; font-family:'Cinzel',serif; font-size:0.8em; font-weight:700; letter-spacing:0.06em; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.5); }
         .board-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,0.7); z-index:200; overflow-y:auto; padding:8px; }
         .board-overlay.open { display:block; }
         .board-modal { background:var(--parchment); max-width:680px; margin:0 auto; border:3px solid var(--border); border-radius:6px; overflow:hidden; }
@@ -1677,7 +1678,6 @@ function slLoadFromWelcome(slot) {
         Object.assign(S, savedS);
         document.getElementById('setup-screen').style.display = 'none';
         document.getElementById('game-screen').style.display  = 'block';
-        document.getElementById('board-btn').style.display    = 'block';
         render();
         addLog('Game loaded from ' + slot + ' (Round ' + G.round + ').');
     } catch(e) {
@@ -2126,7 +2126,6 @@ function launchGame() {
     addLog('=== GAME STARTED — Round 1 begins. Good luck! ===');
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('game-screen').style.display  = 'block';
-    document.getElementById('board-btn').style.display = 'block';
     render();
 }
 
@@ -3607,7 +3606,6 @@ function csReset() {
         humanHits:0, humanReady:false,
         autoRollsAtt:null, autoRollsDef:null,
         pendingStepIdx:-1,
-        retreated:false,
     };
 }
 csReset();
@@ -3676,7 +3674,6 @@ function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
         CS.attUnits = entry?.movingUnits ? {...entry.movingUnits} : {F:1,A:0,C:0,S:0};
         CS._fromEditor = true;
         // Friendly label shown wherever fromTerr would be displayed
-        CS._attLabel = cName(attackerColor) + ' (manually placed)';
     } else {
         // For _prededucted CP battles, use the stored attacking units (board has already been
         // partially updated by spend/fortify steps after the attack was queued)
@@ -3687,13 +3684,12 @@ function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
         } else {
             CS.attUnits={...G.board[fromTerr].units};
         }
-        CS._attLabel = fromTerr;
     }
     CS.defUnits={...G.board[toTerr].units};
     CS.humanAtt=(attackerColor===S.playerColor);
     CS.humanDef=(defenderColor===S.playerColor);
     CS.pendingStepIdx=stepIdx;
-    document.getElementById('combat-title').textContent='COMBAT: '+CS._attLabel+' → '+toTerr;
+    document.getElementById('combat-title').textContent='COMBAT: '+toTerr;
 
     // Determine starting phase
     const hasCastle=G.board[toTerr].castle;
@@ -3752,14 +3748,17 @@ function runAutoCombat(){
         log.push('  Remaining — Att:'+csStr(att)+' Def:'+csStr(def));
     }
 
-    const won=csTotal(att)>0 && csTotal(def)===0;
+    const attAliveAuto=csTotal(att)>0, defAliveAuto=csTotal(def)>0;
+    const won=attAliveAuto&&!defAliveAuto;
+    const bothGoneAuto=!attAliveAuto&&!defAliveAuto;
     log.push(won
-        ? '✓ '+CS.attackerColor.toUpperCase()+' captures '+CS.toTerr+'! ('+csStr(att)+' remain)'
-        : '✗ Defender holds '+CS.toTerr+' ('+csStr(def)+' remain)');
+        ? '✓ '+cName(CS.attackerColor).toUpperCase()+' wins '+CS.toTerr+'! ('+csStr(att)+' remain)'
+        : bothGoneAuto ? 'Both sides eliminated — '+CS.toTerr+' reverts to neutral.'
+        : cName(CS.defenderColor).toUpperCase()+' wins '+CS.toTerr+'! ('+csStr(def)+' remain)');
 
     // Apply board
     csFinalize(won, att, def);
-    addLog('Auto-combat: '+(won?CS.attackerColor+' captures '+CS.toTerr:CS.defenderColor+' holds '+CS.toTerr));
+    addLog('Auto-combat: '+log[log.length-1]);
 
     // Show result overlay
     document.getElementById('combat-overlay').classList.add('open');
@@ -3806,14 +3805,12 @@ function renderCombatUI(){
     const sidesHTML=
         '<div class="combat-sides-row">'+
             '<div class="combat-side" style="'+tileStyle(CS.attackerColor)+'">'+
-                '<div class="sl">ATTACKER</div>'+
-                '<div class="sn">'+sideColor(CS.attackerColor)+'<br><span style="font-weight:400;font-size:0.85em;">'+(CS._attLabel||CS.fromTerr)+'</span></div>'+
+                '<div class="sn">'+sideColor(CS.attackerColor)+'</div>'+
                 '<div class="su">'+csStr(CS.attUnits)+' ('+attTotal+' total)</div>'+
             '</div>'+
-            '<div class="combat-vs">⚔</div>'+
+            '<div class="combat-vs">⚔'+castleIcon+'</div>'+
             '<div class="combat-side" style="'+tileStyle(CS.defenderColor)+'">'+
-                '<div class="sl">DEFENDER'+castleIcon+'</div>'+
-                '<div class="sn">'+sideColor(CS.defenderColor)+'<br><span style="font-weight:400;font-size:0.85em;">'+CS.toTerr+'</span></div>'+
+                '<div class="sn">'+sideColor(CS.defenderColor)+'</div>'+
                 '<div class="su">'+csStr(CS.defUnits)+' ('+defTotal+' total)</div>'+
             '</div>'+
         '</div>';
@@ -3879,7 +3876,6 @@ function renderCombatUI(){
         '<button class="btn-fight" id="cs-apply-btn" onclick="csApply()" '+(canApply?'':'disabled')+'>'+
             (canApply?btnLabel:'Enter your hits above first →')+
         '</button>'+
-        (CS.phase==='main'?'<button class="btn-retreat" onclick="csRetreat()">↩ Retreat</button>':'')+
     '</div>';
 
     document.getElementById('combat-body').innerHTML=
@@ -3951,31 +3947,24 @@ function showCasualtyReport(msg){
     CS._casualtyMsg=msg;
 }
 
-function csRetreat(){
-    const retLabel = CS._fromEditor ? 'off the board' : 'back to '+CS.fromTerr;
-    if(!confirm('Retreat '+CS.attackerColor.toUpperCase()+' '+retLabel+'?')) return;
-    CS.retreated=true;
-    CS.log.push('↩ Attacker retreats '+(CS._fromEditor ? '(removed from board)' : 'to '+CS.fromTerr));
-    CS.phase='result';
-    renderCombatUI();
-}
+// csRetreat removed — no retreats in this game (fight to the death)
 
 function renderResult(){
     const attAlive=csTotal(CS.attUnits)>0, defAlive=csTotal(CS.defUnits)>0;
-    const won=attAlive&&!defAlive&&!CS.retreated;
-    const held=CS.retreated||(!attAlive&&defAlive);
+    const won=attAlive&&!defAlive;
+    const defWon=defAlive&&!attAlive;
+    const bothGone=!attAlive&&!defAlive;
 
     let msg='', cls='';
-    if(CS.retreated){
-        msg='↩ '+CS.attackerColor.toUpperCase()+' retreats. '+CS.defenderColor.toUpperCase()+' holds '+CS.toTerr+'.';
-        if(CS._fromEditor) msg='↩ '+CS.attackerColor.toUpperCase()+' retreats (units removed). '+CS.defenderColor.toUpperCase()+' holds '+CS.toTerr+'.';
-        cls='draw';
-    } else if(won){
-        msg='✓ '+CS.attackerColor.toUpperCase()+' captures '+CS.toTerr+'! ('+csStr(CS.attUnits)+' remain)';
+    if(won){
+        msg='✓ '+cName(CS.attackerColor).toUpperCase()+' wins '+CS.toTerr+'! ('+csStr(CS.attUnits)+' remain)';
         cls='win';
-    } else {
-        msg='✗ Attacker eliminated. '+CS.defenderColor.toUpperCase()+' holds '+CS.toTerr+' ('+csStr(CS.defUnits)+' remain)';
+    } else if(defWon){
+        msg=cName(CS.defenderColor).toUpperCase()+' wins '+CS.toTerr+'! ('+csStr(CS.defUnits)+' remain)';
         cls='loss';
+    } else {
+        msg='Both sides eliminated — '+CS.toTerr+' reverts to neutral.';
+        cls='draw';
     }
 
     csFinalize(won, CS.attUnits, CS.defUnits);
@@ -4002,17 +3991,22 @@ function csFinalize(attackerWon, finalAtt, finalDef){
         const leaveN = leaveBehindCount(from);
         G.board[from].units=unitsToLeave(from,leaveN);
     }
-    if(attackerWon){
+    const defAliveFinal = csTotal(finalDef) > 0;
+    const attAliveFinal = csTotal(finalAtt) > 0;
+    if(attAliveFinal && !defAliveFinal){
+        // Attacker wins — move survivors in
         G.board[to].owner=CS.attackerColor;
         G.board[to].units={F:finalAtt.F||0,A:finalAtt.A||0,C:finalAtt.C||0,S:finalAtt.S||0};
-    } else {
+    } else if(defAliveFinal){
+        // Defender wins — territory stays with defender, units updated
         G.board[to].units={F:finalDef.F||0,A:finalDef.A||0,C:finalDef.C||0,S:finalDef.S||0};
-        if(CS.retreated && csTotal(finalAtt)>0){
-            G.board[from].units.F=(G.board[from].units.F||0)+(finalAtt.F||0);
-            G.board[from].units.A=(G.board[from].units.A||0)+(finalAtt.A||0);
-            G.board[from].units.C=(G.board[from].units.C||0)+(finalAtt.C||0);
-            G.board[from].units.S=(G.board[from].units.S||0)+(finalAtt.S||0);
-        }
+    } else {
+        // Both eliminated — territory goes neutral, clear units
+        G.board[to].owner='neutral';
+        G.board[to].units={F:0,A:0,C:0,S:0};
+        // Clear any shield token for this territory
+        const _sk=shieldKeyForTerr(to);
+        if(_sk && G.shields?.[_sk]) { delete G.shields[_sk]; }
     }
     for(const mv of G.pendingMoves||[]){
         if(mv&&mv.from===from&&mv.to===to) mv._applied=true;
@@ -4029,10 +4023,10 @@ function closeCombat(){
         const idx = CP.activeBattleIdx;
         const b = G.roundCombats[idx];
         if (b) {
-            const attackerWon = csTotal(CS.attUnits) > 0 && csTotal(CS.defUnits) === 0 && !CS.retreated;
-            const defHeld     = CS.retreated || csTotal(CS.defUnits) > 0;
+            const attackerWon = csTotal(CS.attUnits) > 0 && csTotal(CS.defUnits) === 0;
+            const bothElim    = csTotal(CS.attUnits) === 0 && csTotal(CS.defUnits) === 0;
             b._resolved = true;
-            b._result   = attackerWon ? 'Attacker won' : defHeld ? 'Defender held' : 'Both eliminated';
+            b._result   = attackerWon ? 'Color 1 won' : bothElim ? 'Both eliminated' : 'Color 2 won';
             b._log      = CS.log.join('<br>');
             // Award crowns + shield if attacker captured a city
             if (attackerWon) {
@@ -5629,7 +5623,7 @@ function renderCPAutoBattle(b, idx) {
     // Run full auto-combat immediately and store result
     const result = resolveAutoBattle(b);
     G.roundCombats[idx]._resolved = true;
-    G.roundCombats[idx]._result = result.winner === b.color ? 'Attacker won' : result.winner === 'defender' ? 'Defender held' : 'Draw';
+    G.roundCombats[idx]._result = result.winner === b.color ? 'Color 1 won' : result.winner === 'draw' ? 'Both eliminated' : 'Color 2 won';
     G.roundCombats[idx]._log = result.log;
     G.roundCombats[idx]._htmlLog = result.htmlLog;
     applyBattleResult(b, result);
@@ -5656,14 +5650,12 @@ function renderCPHumanBattle(b, idx) {
     return `<div class="cp-human-panel">
         <div class="cp-sides">
             <div class="cp-side" style="background:${attHex};color:${attLight?'#000':'#fff'}">
-                <div class="cps-label">ATTACKER</div>
-                <div class="cps-name">${b.from}</div>
+                <div class="cps-name">${cName(b.color)}</div>
                 <div class="cps-units">${unitStr(attUnits)}</div>
             </div>
             <div class="cp-vs">VS</div>
             <div class="cp-side" style="background:${defHex};color:${defLight?'#000':'#fff'}">
-                <div class="cps-label">DEFENDER</div>
-                <div class="cps-name">${b.to}</div>
+                <div class="cps-name">${cName(defColor)}</div>
                 <div class="cps-units">${unitStr(defUnits)}</div>
             </div>
         </div>
@@ -6000,7 +5992,6 @@ function slLoad(slot) {
         Object.assign(S, savedS);
         document.getElementById('setup-screen').style.display = 'none';
         document.getElementById('game-screen').style.display  = 'block';
-        document.getElementById('board-btn').style.display    = 'block';
         closeSaveLoad();
         render();
         addLog('Game loaded from ' + slot + ' (Round ' + G.round + ').');
@@ -6033,7 +6024,6 @@ function slImport() {
         Object.assign(S, savedS);
         document.getElementById('setup-screen').style.display = 'none';
         document.getElementById('game-screen').style.display  = 'block';
-        document.getElementById('board-btn').style.display    = 'block';
         closeSaveLoad();
         render();
         addLog('Game imported successfully (Round ' + G.round + ').');
@@ -6076,8 +6066,6 @@ showStep(0);
 </script>
 
 <!-- BOARD EDITOR OVERLAY -->
-<!-- board-btn hidden; Board State Editor is now in Game Tools panel -->
-<button id="board-btn" style="display:none" onclick="openBoardEditor()"></button>
 <div class="board-overlay" id="board-overlay">
   <div class="board-modal">
     <div class="board-modal-header">
