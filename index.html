@@ -1062,6 +1062,21 @@ function unitStr(u, short=false) {
 }
 
 function unitTotal(u) { return u.F + u.A + u.C + u.S; }
+// Color emoji prefix for log entries
+const COLOR_EMOJI = { orange:'🟠', green:'🟢', purple:'🟣', blue:'🔵', neutral:'⬜' };
+function colorEmoji(c) { return COLOR_EMOJI[c] || '⬜'; }
+// Convenience: log with color emoji prefix
+function cLog(color, msg) { addLog(`${colorEmoji(color)} ${msg}`); }
+
+// Returns a log-friendly snapshot of a territory's current state
+function boardStr(name) {
+    const b = G.board[name];
+    if (!b) return `[${name}: not found]`;
+    const total = totalUnitCount(name);
+    const units = unitStr(b.units);
+    const castle = b.castle ? ' 🏰' : '';
+    return `${name}${castle} [${cName(b.owner)}] ${units} (${total} total)`;
+}
 
 function leaveBehindCount(name) {
     // Automaton rule: must leave Tax-value units in a city, 1 in non-urban
@@ -1477,28 +1492,41 @@ function decideManeuver(color) {
 // ================================================================
 function applyFortify(territory, count) {
     if (!G.board[territory]) return;
+    const before = totalUnitCount(territory);
     G.board[territory].units.F += count;
-    addLog(`FORTIFY: +${count} Footman placed at ${territory} (${count===4?'castle grants +4':'city grants +3'} free Footmen from reserve).`);
+    cLog(G.board[territory]?.owner, `FORTIFY +${count} Footm${count>1?'en':'an'} at ${boardStr(territory)} (was ${before} total)`);
 }
 
 function applySpend(color, purchase, placements) {
-    G.coins[color] = Math.max(0, G.coins[color] - purchase.cost);
+    // NOTE: coins are already deducted by toggleStep (via _stepCoinEffects) when the
+    // player checks the spend step. Do NOT deduct again here — that caused double-deduction.
     if (purchase.crownCard) {
         // Buying a Crown Card: track it separately, add 1 crown
         G.crownCards[color] = (G.crownCards[color]||0) + 1;
         addCrown(color, 1);
         addLog(`SPEND: ${cName(color)} purchased a Crown Card (+1 Crown, now ${G.crowns[color]||0} total). Crown Card held in reserve.`);
     }
+    const placeLogs = [];
     placements.forEach(p => {
         if (!G.board[p.territory]) return;
+        const before = totalUnitCount(p.territory);
         if (p.type === 'castle') {
             G.board[p.territory].castle = true;
+            placeLogs.push(`Castle placed at ${p.territory}`);
         } else if (p.type === 'siege') {
             G.board[p.territory].units.S++;
+            const after = totalUnitCount(p.territory);
+            placeLogs.push(`+1 Siege Engine at ${p.territory} (${before}→${after})`);
         } else if (p.type === 'units') {
             G.board[p.territory].units[p.unitType] = (G.board[p.territory].units[p.unitType]||0) + p.count;
+            const after = totalUnitCount(p.territory);
+            const uname = p.unitType==='C'?'Cavalry':p.unitType==='A'?`Archer${p.count>1?'s':''}`:p.unitType==='S'?'Siege Engine':`Footm${p.count>1?'en':'an'}`;
+            placeLogs.push(`+${p.count} ${uname} at ${p.territory} (${before}→${after} total)`);
         }
     });
+    if (placeLogs.length) {
+        cLog(color, `${cName(color)} SPEND placed: ${placeLogs.join('; ')}`);
+    }
 }
 
 
@@ -1512,6 +1540,8 @@ function applyNonCombatMove(mv) {
         addLog(`⚠ ${mv.color} tried to move into enemy ${mv.to} (${destOwner}) without combat — skipped. Check combat phase.`);
         return;
     }
+    const fromBefore = totalUnitCount(mv.from);
+    const toBefore   = totalUnitCount(mv.to);
     ['F','A','C','S'].forEach(k => {
         G.board[mv.from].units[k] = Math.max(0, (G.board[mv.from].units[k]||0) - (mu[k]||0));
     });
@@ -1520,15 +1550,18 @@ function applyNonCombatMove(mv) {
     ['F','A','C','S'].forEach(k => {
         G.board[mv.to].units[k] = (G.board[mv.to].units[k]||0) + (mu[k]||0);
     });
+    const fromAfter = totalUnitCount(mv.from);
+    const toAfter   = totalUnitCount(mv.to);
+    cLog(mv.color, `${cName(mv.color)} MOVE ${unitStr(mu)}: ${mv.from}(${fromBefore}→${fromAfter}) → ${mv.to}(${toBefore}→${toAfter})`);
     // Award crown for capturing a city (any non-combat move into a neutral city)
     if (wasNeutral && (T[mv.to]?.tax||0) > 0) {
         const cv = crownValueOfCity(mv.to);
         if (cv > 0) {
             G.crowns[mv.color] = (G.crowns[mv.color]||0) + cv;
-            addLog(`${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${cityLabel(mv.to)}. ${cityLabel(mv.to)} is captured and ${cName(mv.color)} gains ${cv} Crown${cv>1?'s':''} (banner now at ${G.crowns[mv.color]}).`);
+            cLog(mv.color, `${cName(mv.color)} CAPTURES ${cityLabel(mv.to)} · +${cv} Crown (now ${G.crowns[mv.color]}). ${mv.from}→${mv.to}`);
             checkWin(mv.color);
         } else {
-            addLog(`${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to}. ${mv.to} is now owned by ${cName(mv.color)}.`);
+            cLog(mv.color, `${cName(mv.color)} CAPTURES ${mv.to}. ${mv.from}→${mv.to}`);
         }
         // Assign shield token for new city owner
         const sk = shieldKeyForTerr(mv.to);
@@ -1539,7 +1572,7 @@ function applyNonCombatMove(mv) {
             applyShieldBonus(sk, mv.color, 'capture');
         }
     } else {
-        addLog(`${cName(mv.color)} moves ${unitStr(mu)} from ${mv.from} to ${mv.to} (${mv.type||'move'}).`);
+        cLog(mv.color, `${cName(mv.color)} MOVE ${unitStr(mu)}: ${mv.from}→${mv.to}`);
     }
 }
 function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingColor) {
@@ -2399,7 +2432,7 @@ function revealAction() {
     cardEl.innerHTML = card+`<div class="card-sub">${cName(color)} · ${G.coins[color]} coins</div>`;
     G.revealed = true;
     document.getElementById('reveal-btn').style.display = 'none';
-    addLog(`${cName(color)}: "${card}" (${G.coins[color]} coins)`);
+    cLog(color, `${cName(color)} plays "${card}" · ${G.coins[color]} coins`);
     regenerateSteps(card, color);
 }
 
@@ -2443,15 +2476,21 @@ function toggleStep(i) {
             }
         } else {
             const delta = Number(effect);
+            const before = G.coins[color];
             if(!wasChecked) {
                 G.coins[color] = Math.max(0, G.coins[color] + delta);
-                // Tax shield: fires when tax step is checked (delta > 0 = we just collected tax)
                 if (delta > 0) {
+                    // Tax collected
                     const taxCity = G.pendingMoves?.find(m=>m.type==='tax')?.city;
+                    cLog(color, `${cName(color)} TAX ${taxCity||''}: +${delta} coins (${before}→${G.coins[color]})`);
                     if (taxCity) applyShieldBonus(shieldKeyForTerr(taxCity) || taxCity, color, 'tax');
+                } else {
+                    // Spend deducted
+                    cLog(color, `${cName(color)} SPEND: ${Math.abs(delta)} coins deducted (${before}→${G.coins[color]})`);
                 }
             } else {
                 G.coins[color] = Math.max(0, G.coins[color] - delta);
+                cLog(color, `${cName(color)} step unchecked: coins reversed (${before}→${G.coins[color]})`);
             }
         }
         render();
@@ -3997,13 +4036,16 @@ function csFinalize(attackerWon, finalAtt, finalDef){
     }
     const defAliveFinal = csTotal(finalDef) > 0;
     const attAliveFinal = csTotal(finalAtt) > 0;
+    const _toOldOwner = G.board[to]?.owner || 'neutral';
     if(attAliveFinal && !defAliveFinal){
         // Attacker wins — move survivors in
         G.board[to].owner=CS.attackerColor;
         G.board[to].units={F:finalAtt.F||0,A:finalAtt.A||0,C:finalAtt.C||0,S:finalAtt.S||0};
+        cLog(CS.attackerColor, `COMBAT RESULT: ${cName(CS.attackerColor)} wins ${to}. Now: ${boardStr(to)}${from!=='__editor__'?' · '+boardStr(from):''}`);
     } else if(defAliveFinal){
         // Defender wins — territory stays with defender, units updated
         G.board[to].units={F:finalDef.F||0,A:finalDef.A||0,C:finalDef.C||0,S:finalDef.S||0};
+        cLog(_toOldOwner, `COMBAT RESULT: ${cName(_toOldOwner)} holds ${to}. Now: ${boardStr(to)}`);
     } else {
         // Both eliminated — territory goes neutral, clear units
         G.board[to].owner='neutral';
@@ -4011,6 +4053,7 @@ function csFinalize(attackerWon, finalAtt, finalDef){
         // Clear any shield token for this territory
         const _sk=shieldKeyForTerr(to);
         if(_sk && G.shields?.[_sk]) { delete G.shields[_sk]; }
+        addLog(`⬜ COMBAT RESULT: Both eliminated — ${to} reverts to neutral`);
     }
     for(const mv of G.pendingMoves||[]){
         if(mv&&mv.from===from&&mv.to===to) mv._applied=true;
@@ -4398,14 +4441,18 @@ function humanSiegeMovingUnits(from) {
 function applyHumanMove(from, to, moving) {
     const pc = S.playerColor;
     const defOwner = G.board[to]?.owner || 'neutral';
+    const fromBefore = totalUnitCount(from);
+    const toBefore   = totalUnitCount(to);
     // Deduct from source
     ['F','A','C','S'].forEach(k => { G.board[from].units[k]=Math.max(0,(G.board[from].units[k]||0)-(moving[k]||0)); });
     if (defOwner === pc) {
         ['F','A','C','S'].forEach(k => { G.board[to].units[k]=(G.board[to].units[k]||0)+(moving[k]||0); });
+        cLog(pc, `${cName(pc)} MOVE ${unitStr(moving)}: ${from}(${fromBefore}→${totalUnitCount(from)}) → ${to}(${toBefore}→${totalUnitCount(to)})`);
         return {type:'friendly', outcome:`Moved to ${to}.`, boardReminder:`Move <b>${unitStr(moving)}</b> from ${from} to <b>${to}</b> on your board.`};
     } else if (defOwner === 'neutral') {
         G.board[to].owner = pc;
         G.board[to].units = {F:moving.F||0,A:moving.A||0,C:moving.C||0,S:moving.S||0};
+        cLog(pc, `${cName(pc)} CAPTURES ${to} · ${unitStr(moving)} from ${from}(${fromBefore}→${totalUnitCount(from)}) · ${to} now ${totalUnitCount(to)}`);
         const cv = crownValueOfCity(to);
         if (cv>0) { G.crowns[pc]=(G.crowns[pc]||0)+cv; checkWin(pc); }
         const crownNote = cv>0 ? ` +${cv} Crown${cv>1?'s':''}! (now ${G.crowns[pc]} total)` : '';
@@ -4421,6 +4468,7 @@ function applyHumanMove(from, to, moving) {
         if (!G.roundCombats) G.roundCombats=[];
         const already=G.roundCombats.some(c=>c.from===from&&c.to===to&&c.color===pc);
         if (!already) G.roundCombats.push({color:pc,from,to,movingUnits:{...moving},movable:Object.values(moving).reduce((a,b)=>a+b,0),isEnemy:true,_prededucted:true});
+        cLog(pc, `${cName(pc)} ATTACKS ${to} with ${unitStr(moving)} from ${from}(${fromBefore}→${totalUnitCount(from)}) · ${toBefore} defenders · battle queued`);
         return {type:'combat', outcome:`⚔ Battle queued vs ${defOwner}.`, boardReminder:`Move <b>${unitStr(moving)}</b> from <b>${from}</b>. Note the pending attack on <b>${to}</b> — it resolves in the Combat Phase.`};
     }
 }
@@ -4518,12 +4566,14 @@ function hfSpendApply(idx) {
     const step = G.humanFlow[idx];
     if (!step) return;
     // Deduct coins immediately
-    G.coins[pc] = Math.max(0, (G.coins[pc]||0) - total);
+    const _spendBefore = G.coins[pc]||0;
+    G.coins[pc] = Math.max(0, _spendBefore - total);
+    cLog(pc, `${cName(pc)} SPEND: ${total} coins deducted (${_spendBefore}→${G.coins[pc]})`);
     // Crown Card purchase: award +1 Crown immediately, no physical placement needed
     if ((cart.CrownCard||0) > 0) {
         G.crownCards[pc] = (G.crownCards[pc]||0) + (cart.CrownCard||0);
         addCrown(pc, cart.CrownCard);
-        addLog(`👑 CROWN CARD: You purchased ${cart.CrownCard} Crown Card${cart.CrownCard>1?'s':''} — +${cart.CrownCard} Crown${cart.CrownCard>1?'s':''}! (now ${G.crowns[pc]} total)`);
+        cLog(pc, `👑 CROWN CARD: You purchased ${cart.CrownCard} Crown Card${cart.CrownCard>1?'s':''} — +${cart.CrownCard} Crown${cart.CrownCard>1?'s':''}! (now ${G.crowns[pc]} total)`);
     }
     // Constantinople shield: bonus 4 Footmen to place alongside Siege Engine
     const hasCon = (cart.S>0) && CITY_SHIELDS['Constantinople']?.trigger==='spend' && G.shields?.['Constantinople']===pc;
@@ -4568,13 +4618,19 @@ function hfPlaceConfirm(idx) {
     const step = G.humanFlow[idx];
     if (!step || step.state !== 'place_units') return;
     // Apply placements to G.board
+    const _placeLogs = [];
     for (const [terr, units] of Object.entries(step.placements)) {
         if (!G.board[terr]) continue;
+        const _before = totalUnitCount(terr);
         for (const k of ['F','A','C','S']) {
             G.board[terr].units[k] = (G.board[terr].units[k]||0) + (units[k]||0);
         }
         if (units.Castle && !G.board[terr].castle) G.board[terr].castle = true;
+        const _added = ['F','A','C','S'].filter(k=>units[k]>0).map(k=>`+${units[k]}${k}`).join(' ');
+        const _castle = units.Castle ? '+Castle' : '';
+        if (_added||_castle) _placeLogs.push(`${terr}: ${_added}${_castle} (${_before}→${totalUnitCount(terr)})`);
     }
+    if (_placeLogs.length) cLog(S.playerColor, `${cName(S.playerColor)} SPEND placed: ${_placeLogs.join('; ')}`);
     // Build placement summary for board reminder
     const placeSummary = Object.entries(step.placements)
         .filter(([,u]) => Object.values(u).some(n=>n>0))
@@ -4621,8 +4677,10 @@ function hfSelect(idx, choice) {
     }
     else if (step.type === 'tax_city') {
         const city = choice;
+        const _taxBefore = G.coins[pc]||0;
         const yld = taxYield(pc, city);
-        G.coins[pc] = (G.coins[pc]||0) + yld;
+        G.coins[pc] = _taxBefore + yld;
+        cLog(pc, `${cName(pc)} TAX ${cityLabel(city)}: +${yld} coins (${_taxBefore}→${G.coins[pc]})`);
         step.state='done';
         step.summary=`Taxed ${cityLabel(city)}: +${yld} coins (total now ${G.coins[pc]}).`;
         // Shield bonus: auto-apply
@@ -4645,7 +4703,9 @@ function hfSelect(idx, choice) {
     else if (step.type === 'fortify_city') {
         const city = choice;
         const count = G.board[city]?.castle ? 4 : 3;
+        const _fBefore = totalUnitCount(city);
         G.board[city].units.F = (G.board[city].units.F||0) + count;
+        cLog(pc, `${cName(pc)} FORTIFY ${city}: +${count} Footm${count>1?'en':'an'} (${_fBefore}→${totalUnitCount(city)} total)`);
         step.state='done';
         step.summary=`Fortified ${city}: +${count} Footmen (now ${totalUnitCount(city)} total).`;
         step.boardReminder=`Place <b>${count} Footmen</b> in <b>${city}</b> on your physical board.`;
@@ -4723,9 +4783,7 @@ function hfSelectTo(idx, to, moving) {
     step.state='done'; step.to=to;
     step.summary=`${from} → ${to} (${unitStr(moving)}). ${result.outcome}`;
     step.boardReminder=result.boardReminder;
-    if (result.type==='capture_crown') addLog(`You move ${unitStr(moving)} from ${from} to ${cityLabel(to)}. ${cityLabel(to)} is captured and you gain ${result.crowns} Crown${result.crowns>1?'s':''} (banner now at ${G.crowns[S.playerColor]}).`);
-    else if (result.type==='capture')  addLog(`You move ${unitStr(moving)} from ${from} to ${to}. ${to} is captured.`);
-    else if (result.type==='combat')   addLog(`You move ${unitStr(moving)} from ${from} and attack ${to}. Battle queued — resolves in Combat Phase.`);
+    // Logs are emitted by applyHumanMove — no duplicate log needed here
     render();
     renderHumanTurn();
 }
@@ -5138,7 +5196,7 @@ function confirmHumanCard() {
     // Cards with no variant go straight to checklist
     if (humanCardVariants(card).length === 0) {
         G.humanSteps = generateHumanSteps(card, null);
-        addLog('Your card: "' + card + '"');
+        cLog(S.playerColor, 'You play "' + card + '" · ' + (G.coins[S.playerColor]||0) + ' coins');
     }
     G.humanTurnChecks = new Set();
     G.humanBoardUpdated = false;
@@ -5156,7 +5214,7 @@ function confirmHumanVariant() {
     G.humanVariant = v;
     G._humanVariantPending = null;
     G.humanFlow = buildHumanFlow(G.humanCard, v);
-    addLog('Your card: "' + G.humanCard + '" — ' + v.replace(/_/g,' '));
+    cLog(S.playerColor, 'You play "' + G.humanCard + '" — ' + v.replace(/_/g,' ') + ' · ' + (G.coins[S.playerColor]||0) + ' coins');
     G.humanTurnChecks = new Set();
     G.humanBoardUpdated = false;
     renderHumanTurn();
@@ -5868,6 +5926,9 @@ function resolveAutoBattle(b) {
 
 function applyBattleResult(b, result) {
     const defColor = G.board[b.to]?.owner || 'neutral';
+    const _attBefore = b.movingUnits ? Object.values(b.movingUnits).reduce((s,n)=>s+n,0) : '?';
+    const _defBefore = totalUnitCount(b.to);
+    cLog(b.color, `COMBAT ⚔ ${cName(b.color)} (${_attBefore}) vs ${cName(defColor)} (${_defBefore}) at ${b.to}`);
     if (result.winner === b.color) {
         // Attacker wins — move survivors to captured territory
         // __editor__ battles and pre-deducted human moves don't need from-deduction
