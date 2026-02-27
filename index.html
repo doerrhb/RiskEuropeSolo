@@ -641,6 +641,7 @@
         <div class="full-log-modal">
             <div class="full-log-header">
                 <span>Full Game Log</span>
+                <button onclick="copyLogToClipboard()" style="font-family:'Cinzel',serif;font-size:0.72em;background:var(--accent);color:#fff;border:none;border-radius:5px;padding:4px 10px;cursor:pointer;margin-right:6px;" title="Copy full log to clipboard">📋 Copy</button>
                 <button onclick="closeFullLog()">✕</button>
             </div>
             <div class="full-log-body" id="full-log-body"></div>
@@ -1065,6 +1066,8 @@ function unitTotal(u) { return u.F + u.A + u.C + u.S; }
 // Color emoji prefix for log entries
 const COLOR_EMOJI = { orange:'🟠', green:'🟢', purple:'🟣', blue:'🔵', neutral:'⬜' };
 function colorEmoji(c) { return COLOR_EMOJI[c] || '⬜'; }
+// Always returns the color name (never 'You') — for UI where we need both sides labeled
+function colorLabel(c) { return c ? (c.charAt(0).toUpperCase()+c.slice(1)) : 'Neutral'; }
 // Convenience: log with color emoji prefix
 function cLog(color, msg) { addLog(`${colorEmoji(color)} ${msg}`); }
 
@@ -1569,7 +1572,8 @@ function applyNonCombatMove(mv) {
             G.shields = G.shields || {};
             G.shields[sk] = mv.color;
             addLog(`🛡 SHIELD GAINED: ${cName(mv.color)} now holds the ${cityLabel(mv.to)} shield token (non-combat capture).`);
-            applyShieldBonus(sk, mv.color, 'capture');
+            showShieldReminder(sk, mv.color, 'capture');
+        applyShieldBonus(sk, mv.color, 'capture');
         }
     } else {
         cLog(mv.color, `${cName(mv.color)} MOVE ${unitStr(mu)}: ${mv.from}→${mv.to}`);
@@ -2032,10 +2036,12 @@ const CITY_SHIELDS = {
     "London":         { terr:"England",       trigger:'tax',          crownBonus:0, reminder:"🛡 LONDON SHIELD: You taxed London — place 2 Archers in England (London) for FREE." },
 };
 
-function showShieldReminder(city, color) {
+function showShieldReminder(city, color, context) {
     const sh = CITY_SHIELDS[city];
     if (!sh || !sh.reminder) return;
     if (!G.shields || G.shields[city] !== color) return;
+    // Don't show a tax-trigger reminder after a non-tax action (e.g. combat capture)
+    if (context === 'capture' && sh.trigger === 'tax') return;
     if (color === S.playerColor) {
         addLog(sh.reminder);
         const toast = document.createElement('div');
@@ -2722,6 +2728,23 @@ function generateSteps(card, color, coins) {
                 <span class="rule-note">${_manDec.reason}</span>`);
             } else {
                 G.pendingMove = { type:'none' }; G.pendingMoves.push(G.pendingMove);
+                // Diagnose and log the reason
+                const _ownedT = ownedBy(color);
+                const _noMoveDiag = _ownedT.length === 0
+                    ? `${C} owns no territories.`
+                    : _ownedT.map(t => {
+                        const mv = movableCount(t, color);
+                        if (mv <= 0) return `${t}: ${totalUnitCount(t)} units, 0 movable (must leave ${leaveBehindCount(t)})`;
+                        const adjCities = (T[t]?.adj||[]).filter(a => T[a]?.tax > 0 && G.board[a]?.owner !== color);
+                        if (!adjCities.length) return `${t}: ${mv} movable, no adjacent unowned cities`;
+                        const blocked = adjCities.map(a => {
+                            if (G.board[a]?.castle && !G.board[t].units.S) return `${a} blocked (castle, no siege)`;
+                            if (G.board[a]?.owner !== 'neutral' && !canAttack(mv, totalUnitCount(a))) return `${a} blocked (${totalUnitCount(a)} defenders, ${mv} attackers too few)`;
+                            return null;
+                        }).filter(Boolean);
+                        return blocked.length ? `${t}: ${mv} movable but ${blocked.join('; ')}` : `${t}: ${mv} movable — no reachable city`;
+                    }).join(' | ');
+                cLog(color, `${C} NO MOVE: ${_noMoveDiag}`);
                 steps.push(`<b>NO MOVE POSSIBLE</b> — ${C} cannot Split Expand or Maneuver. ✓ and continue.`);
             }
         }
@@ -2948,6 +2971,25 @@ function advanceTurn() {
                 if (!already) G.roundCombats.push({ ...mv });
             }
         }
+    }
+    // Log end-of-turn board state for the color that just acted
+    const _etColor = activeColor();
+    const _etOwned = ownedBy(_etColor);
+    if (_etOwned.length) {
+        const _etSummary = _etOwned
+            .filter(n => T[n])
+            .sort((a,b) => (T[b].tax||0)-(T[a].tax||0))
+            .map(n => {
+                const u = G.board[n].units;
+                const parts = [];
+                if (u.S>0) parts.push(u.S+'S');
+                if (u.C>0) parts.push(u.C+'C');
+                if (u.A>0) parts.push(u.A+'A');
+                if (u.F>0) parts.push(u.F+'F');
+                return `${n}:${parts.join('+')||'0'}${G.board[n].castle?'🏰':''}`;
+            }).join('  ');
+        const _etTotal = _etOwned.reduce((s,n)=>s+totalUnitCount(n),0);
+        cLog(_etColor, `END OF TURN — ${cName(_etColor)} has ${_etOwned.length} territories, ${_etTotal} total units. ${_etSummary}`);
     }
     G.pendingMoves = [];
     G.pendingMove = null;
@@ -4073,7 +4115,7 @@ function closeCombat(){
             const attackerWon = csTotal(CS.attUnits) > 0 && csTotal(CS.defUnits) === 0;
             const bothElim    = csTotal(CS.attUnits) === 0 && csTotal(CS.defUnits) === 0;
             b._resolved = true;
-            b._result   = attackerWon ? 'Color 1 won' : bothElim ? 'Both eliminated' : 'Color 2 won';
+            b._result   = attackerWon ? `${colorLabel(b.color)} wins` : bothElim ? 'Both eliminated' : `${colorLabel(b._defColor||G.board[b.to]?.owner||'?')} wins`;
             b._log      = CS.log.join('<br>');
             // Award crowns + shield if attacker captured a city
             if (attackerWon) {
@@ -4096,12 +4138,16 @@ function closeCombat(){
                     if (!G.shields) G.shields = {};
                     G.shields[_cpSK] = b.color;
                     addLog(`🛡 SHIELD GAINED: ${cName(b.color)} now holds the ${cityLabel(b.to)} shield token (captured via combat).`);
-                    showShieldReminder(_cpSK, b.color);
+                    showShieldReminder(_cpSK, b.color, 'capture');
                     applyShieldBonus(_cpSK, b.color, 'capture');
                 }
-                showShieldReminder('Stockholm', b.color);
+                showShieldReminder('Stockholm', b.color, 'battle_win');
                 applyShieldBonus('Stockholm', b.color, 'battle_win');
             }
+        }
+        // Log human combat rounds to game history
+        if (CS.log && CS.log.length) {
+            CS.log.forEach(l => addLog(`  ${l}`));
         }
         CP.idx = (idx || 0) + 1;
         csReset();
@@ -4467,7 +4513,7 @@ function applyHumanMove(from, to, moving) {
     } else {
         if (!G.roundCombats) G.roundCombats=[];
         const already=G.roundCombats.some(c=>c.from===from&&c.to===to&&c.color===pc);
-        if (!already) G.roundCombats.push({color:pc,from,to,movingUnits:{...moving},movable:Object.values(moving).reduce((a,b)=>a+b,0),isEnemy:true,_prededucted:true});
+        if (!already) G.roundCombats.push({color:pc,from,to,movingUnits:{...moving},movable:Object.values(moving).reduce((a,b)=>a+b,0),isEnemy:true,_prededucted:true,_defColor:defOwner});
         cLog(pc, `${cName(pc)} ATTACKS ${to} with ${unitStr(moving)} from ${from}(${fromBefore}→${totalUnitCount(from)}) · ${toBefore} defenders · battle queued`);
         return {type:'combat', outcome:`⚔ Battle queued vs ${defOwner}.`, boardReminder:`Move <b>${unitStr(moving)}</b> from <b>${from}</b>. Note the pending attack on <b>${to}</b> — it resolves in the Combat Phase.`};
     }
@@ -4796,7 +4842,13 @@ function hfSkip(idx) {
 
 function hfUndo(idx) {
     const step = G.humanFlow[idx];
-    if (step) { step.from=null; step.state='pick_from'; }
+    if (!step) return;
+    if (step.type === 'split_expand_2') {
+        // Step 2 source is always locked to step 1 — only reset destination
+        step.to = null; step.pendingUnits = null; step.state = 'pick_to';
+    } else {
+        step.from = null; step.state = 'pick_from';
+    }
     renderHumanTurn();
 }
 
@@ -5046,17 +5098,24 @@ function renderFlowStepBody(step, idx) {
             }
 
             if (step.state === 'pick_from') {
-                // split_expand_2: from is pre-locked to same origin as step 1.
-                // Auto-advance to pick_to only once step 1 is done (confirmed).
-                if (step.type === 'split_expand_2' && step.from) {
+                // split_expand_2: source ALWAYS locked to step 1's source — never free choice.
+                if (step.type === 'split_expand_2') {
                     const step1 = G.humanFlow.find(s => s.type === 'split_expand_1');
-                    if (!step1 || step1.state === 'done') {
-                        step.state = 'pick_to';
-                        return renderFlowStepBody(step, idx);
-                    }
-                    // Step 1 not yet done — show waiting message with skip option
-                    return `<p style="font-size:0.83em;color:var(--ink-light);">⏳ Complete Destination 1 first, then Destination 2 will unlock here.</p>
+                    // Always sync from to step1's from (handles undo/re-pick on step 1)
+                    if (step1?.from) step.from = step1.from;
+                    if (!step1 || step1.state !== 'done') {
+                        // Step 1 not yet done — wait
+                        return `<p style="font-size:0.83em;color:var(--ink-light);">⏳ Complete Destination 1 first, then Destination 2 will unlock here.</p>
                         <button class="btn-retreat" style="margin-top:6px;font-size:0.8em;" onclick="hfSkip(${idx})">Skip — move into 1 territory only</button>`;
+                    }
+                    if (!step.from) {
+                        // Step 1 done but no source recorded — skip gracefully
+                        return `<p style="font-size:0.83em;color:#aaa;">No valid source for Destination 2.</p>
+                        <button class="btn-retreat" onclick="hfSkip(${idx})">Skip</button>`;
+                    }
+                    // Lock confirmed — advance to pick_to
+                    step.state = 'pick_to';
+                    return renderFlowStepBody(step, idx);
                 }
                 const opts = step.type==='siege' ? humanSiegeFromOpts() : humanMoveFromOpts();
                 if (!opts.length) {
@@ -5609,6 +5668,18 @@ function normaliseCombats() {
 function openCombatPhase(roundNum) {
     normaliseCombats(); // merge duplicate attacks, remove self-combat
     CP = { idx:0, humanBattle:null, humanPhase:null, humanRounds:[] };
+    // Log all queued battles so they're in the log even if player skips through fast
+    const _battles = G.roundCombats || [];
+    if (_battles.length) {
+        addLog(`⚔ COMBAT PHASE ROUND ${roundNum||G.round}: ${_battles.length} battle${_battles.length>1?'s':''} to resolve.`);
+        _battles.forEach((b,i) => {
+            const dc = G.board[b.to]?.owner||'neutral';
+            const att = (b._prededucted||b._fromEditor)?(b.movingUnits||{}):(G.board[b.from]?.units||{});
+            const attN = Object.values(att).reduce((s,n)=>s+n,0);
+            const defN = totalUnitCount(b.to);
+            cLog(b.color, `  Battle ${i+1}: ${colorLabel(b.color)} (${unitStr(att)}) vs ${colorLabel(dc)} (${unitStr(G.board[b.to]?.units||{})}) at ${b.to}${G.board[b.to]?.castle?' 🏰':''}`);
+        });
+    }
     document.getElementById('cp-round').textContent = roundNum || G.round;
     document.getElementById('cp-overlay').classList.add('open');
     renderCombatPhase();
@@ -5635,7 +5706,9 @@ function renderCombatPhase() {
         const isActive = i === CP.idx && !resolved;
         const attColor = b.color || 'neutral';
         const defColor = G.board[b.to]?.owner || 'neutral';
-        const attUnits = totalUnitCount(G.board[b.from]?.units || {});
+        const attUnits = (b._prededucted || b._fromEditor)
+            ? Object.values(b.movingUnits||{}).reduce((s,n)=>s+n,0)
+            : totalUnitCount(G.board[b.from]?.units || {});
         const defUnits = totalUnitCount(G.board[b.to]?.units || {});
         const humanInvolved = b.color === S.playerColor || defColor === S.playerColor;
         const badge = resolved
@@ -5664,7 +5737,7 @@ function renderCombatPhase() {
             <div class="cp-battle-hdr">
                 <div>
                     <div class="cp-battle-title">⚔ ${b.to}${G.board[b.to]?.castle?' 🏰':''}</div>
-                    <div class="cp-battle-sub">${cName(b.color)} vs ${cName(defColor)}${b._merged?' <span style="font-size:0.8em;opacity:0.7;">(combined attack)</span>':''}</div>
+                    <div class="cp-battle-sub">${colorLabel(b.color)} vs ${colorLabel(b._defColor||defColor)}${b._merged?' <span style="font-size:0.8em;opacity:0.7;">(combined attack)</span>':''}</div>
                 </div>
                 ${badge}
             </div>
@@ -5685,7 +5758,7 @@ function renderCPAutoBattle(b, idx) {
     // Run full auto-combat immediately and store result
     const result = resolveAutoBattle(b);
     G.roundCombats[idx]._resolved = true;
-    G.roundCombats[idx]._result = result.winner === b.color ? 'Color 1 won' : result.winner === 'draw' ? 'Both eliminated' : 'Color 2 won';
+    G.roundCombats[idx]._result = result.winner === b.color ? `${colorLabel(b.color)} wins` : result.winner === 'draw' ? 'Both eliminated' : `${colorLabel(b._defColor||G.board[b.to]?.owner||'?')} wins`;
     G.roundCombats[idx]._log = result.log;
     G.roundCombats[idx]._htmlLog = result.htmlLog;
     applyBattleResult(b, result);
@@ -5700,8 +5773,8 @@ function renderCPAutoBattle(b, idx) {
 // ── Human battle UI ───────────────────────────────────────────────
 function renderCPHumanBattle(b, idx) {
     const defColor = G.board[b.to]?.owner || 'neutral';
-    // For __editor__ battles the attacker has no origin territory — use stored movingUnits
-    const attUnits = b._fromEditor ? (b.movingUnits||{}) : (G.board[b.from]?.units || {});
+    // For prededucted (human pre-moved) or editor battles, use stored movingUnits
+    const attUnits = (b._prededucted || b._fromEditor) ? (b.movingUnits||{}) : (G.board[b.from]?.units || {});
     const defUnits = G.board[b.to]?.units || {};
     const attHex = COLOR_HEX[b.color] || '#888';
     const defHex = COLOR_HEX[defColor] || '#888';
@@ -5916,6 +5989,23 @@ function resolveAutoBattle(b) {
                   winner==='defender' ? `✗ ${defColorName} holds ${b.to}! (${defSurv} survivors)` :
                   `⚡ Both sides eliminated.`);
 
+    // Push compact combat narrative to game log
+    const _siegeStr = (aSiege > 0 && targetHasCastle) ? `SIEGE: ${htmlLog[0]?.includes('No casualties') ? '0 hits → defender loses none' : 'hits applied'}. ` : '';
+    const _archStr = (aArch+dArch > 0) ? `ARCHERS: Att ${htmlLog[aSiege>0?1:0]?.match(/\d+ hit/)?.[0]||'?'} → ${htmlLog[aSiege>0?1:0]?.includes('No casualties')?'no casualties':('Def loses '+unitDiffStr(dStart,dUnits).slice(0,40)||'?')+' | Def '+((dArch>0)?'hits':0+' h')+' → '+(dHits>0?'Att loses '+unitDiffStr(aStart,aUnits).slice(0,40):'Att loses none')}. ` : '';
+    let _combatSummary = `${_siegeStr}${_archStr}`;
+    for (let ri=0; ri<rounds; ri++) {
+        const rh = htmlLog[(aSiege>0&&targetHasCastle?1:0)+(aArch+dArch>0?1:0)+ri]||'';
+        const _def = rh.match(/Remove from [^:]+: (.+?)(?:<|$)/)?.[1]||'';
+        const _att = rh.match(/Remove from [^:]+: (.+?)(?:<br>|<\/)/g)?.[1]?.replace(/<[^>]+>/g,'')||'';
+        const _aH = (aRolls?.filter(r=>r.hit).length||0); const _dH = (dRolls?.filter(r=>r.hit).length||0);
+        _combatSummary += `R${ri+1}: `;
+    }
+    // Simple plain-English log entry for each battle
+    const _siegeLine = (aSiege>0&&targetHasCastle) ? `SIEGE: ${plainLog[0]||'siege'} ` : '';
+    const _archLine  = (aArch+dArch>0)             ? `ARCHERS: Att ${aArch} bow, Def ${dArch} bow. ` : '';
+    const _roundLine = `${rounds} main round${rounds!==1?'s':''}.`;
+    cLog(b.color, `  ${attColorName} vs ${defColorName} at ${b.to}: ${_siegeLine}${_archLine}${_roundLine} → ${plainLog[plainLog.length-1]}`);
+
     return {
         winner, attSurv, defSurv,
         attUnits: aUnits, defUnits: dUnits,
@@ -5960,10 +6050,10 @@ function applyBattleResult(b, result) {
             if (!G.shields) G.shields = {};
             G.shields[_bsk] = b.color;
             addLog(`🛡 SHIELD GAINED: ${cName(b.color)} now holds the ${cityLabel(b.to)} shield token (captured via combat).`);
-            showShieldReminder(_bsk, b.color);
+            showShieldReminder(_bsk, b.color, 'capture');
         }
         // Stockholm shield (attacker wins any battle)
-        showShieldReminder('Stockholm', b.color);
+        showShieldReminder('Stockholm', b.color, 'battle_win');
         applyShieldBonus('Stockholm', b.color, 'battle_win');
     } else if (result.winner === 'defender') {
         // Defender holds — attacking units destroyed (already gone from source for human attacks)
@@ -5997,6 +6087,24 @@ function applyBattleResult(b, result) {
 // INIT
 // ================================================================
 // ── Full Log ──────────────────────────────────────────────────
+function copyLogToClipboard() {
+    if (!G.logHistory) return;
+    const text = `Risk Europe Solo — Log exported Round ${G.round}\n${'='.repeat(50)}\n`
+        + G.logHistory.slice().reverse().map(m => m.replace(/<[^>]+>/g,'')).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector('.full-log-header button');
+        if (btn) { btn.textContent='✓ Copied!'; setTimeout(()=>{btn.textContent='📋 Copy';},2000); }
+    }).catch(() => {
+        // Fallback: select a textarea
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+        const btn = document.querySelector('.full-log-header button');
+        if (btn) { btn.textContent='✓ Copied!'; setTimeout(()=>{btn.textContent='📋 Copy';},2000); }
+    });
+}
 function openFullLog() {
     const el = document.getElementById('full-log-body');
     if (!el || !G.logHistory) return;
