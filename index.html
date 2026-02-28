@@ -975,6 +975,19 @@ function cityLabel(terrName) {
 // Helper: list all city territory names (territories that contain a city)
 const ALL_CITIES = Object.keys(T).filter(n => T[n].tax > 0);
 
+// Sea-line connections that CANNOT be used for Siege Assault
+const SEA_CROSSINGS = new Set([
+    'England|Normandy', 'England|Lorraine',
+    'Scotland|Norway', 'Scotland|Ireland',
+    'Ireland|Wales', 'Ireland|Brittany',
+    'Denmark|Norway', 'Denmark|Sweden',
+    'Denmark|Pomerania', 'Denmark|Friesland',
+    'Finland|Estonia',
+]);
+function isSeaCrossing(a, b) {
+    return SEA_CROSSINGS.has(a+'|'+b) || SEA_CROSSINGS.has(b+'|'+a);
+}
+
 // ================================================================
 // BOARD STATE HELPERS
 // ================================================================
@@ -1379,14 +1392,19 @@ function decideFortify(color) {
 
 function decideSiege(color) {
     // Must have at least 1 siege engine
-    const withSiege = ownedBy(color).filter(n => G.board[n].units.S > 0);
+    // Cannot use Siege Assault from a disputed territory (battle already queued there)
+    const withSiege = ownedBy(color).filter(n =>
+        G.board[n].units.S > 0 && !isContested(n)
+    );
     if (!withSiege.length) return null;
     let candidates = [];
     for (const t of withSiege) {
         for (const adj of T[t].adj) {
-            // Siege Assault only targets enemy-held castles (neutral castles can be entered without siege)
+            // Siege Assault: enemy-held castle, NOT across a sea line, NOT into a disputed territory
             if (G.board[adj]?.owner && G.board[adj].owner !== color && G.board[adj].owner !== 'neutral'
-                    && G.board[adj].castle) {
+                    && G.board[adj].castle
+                    && !isSeaCrossing(t, adj)
+                    && !isContested(adj)) {
                 candidates.push({ from:t, to:adj, defenders: totalUnitCount(adj), defOwner: G.board[adj].owner });
             }
         }
@@ -2915,8 +2933,7 @@ function generateSteps(card, color, coins) {
             G.pendingMove = { type:'expand', color, from:siegeDec.from, to:siegeDec.to,
                 movingUnits: siegeMovingUnits, movable: siegeMovable, isEnemy:true };
             G.pendingMoves.push(G.pendingMove);
-            steps.push(`<b>SIEGE ASSAULT:</b> Attack <b>${siegeDec.to}</b> from <b>${siegeDec.from}</b> (${siegeDec.defenders} defenders, owned by ${siegeDec.defOwner}).`);
-            steps.push(`<b>Resolve siege combat</b> (Siege Engine fires first per base game rules).`);
+            steps.push(`<b>SIEGE ASSAULT:</b> Move <b>${unitStr(siegeMovingUnits)}</b> from <b>${siegeDec.from}</b> → <b>${siegeDec.to}</b>. This attack includes a Siege Engine, so the castle is no longer a barrier. Combat resolves in the Combat Phase at end of round.`);
             steps.push(renderCombatDialog(G.pendingMove));
         } else {
             steps.push(`<b>SIEGE ASSAULT: No Siege Engine available</b> — ${C} has no siege engines on the board. Skip to EXPAND/MANEUVER below.`);
@@ -3004,9 +3021,11 @@ function renderCombatDialog(move) {
     if (!already) G.roundCombats.push({ ...move });
     const defOwner = G.board[move.to]?.owner || 'neutral';
     const def = totalUnitCount(move.to);
+    const movingStr = move.movingUnits ? unitStr(move.movingUnits) : (move.movable||totalUnitCount(move.from))+' units';
     return `<div style="background:rgba(139,26,26,0.06);border:2px solid rgba(139,26,26,0.3);border-radius:8px;padding:10px 14px;font-size:0.87em;">
         <b style="font-family:Cinzel,serif;color:var(--accent);">⚔ Attack queued for Combat Phase</b><br>
-        <span style="color:var(--ink-light);">${move.movable||totalUnitCount(move.from)} units: <b>${move.from} → ${move.to}</b> · ${def} defenders (${defOwner.toUpperCase()})</span>
+        <span style="color:var(--ink-light);">Attacking: <b>${movingStr}</b> from <b>${move.from} → ${move.to}</b></span><br>
+        <span style="color:var(--ink-light);font-size:0.9em;">Defender: ${def} unit${def!==1?'s':''} (${defOwner.toUpperCase()})${G.board[move.to]?.castle?' 🏰':''}</span>
     </div>`;
 }
 
@@ -4784,8 +4803,13 @@ function humanSiegeFromOpts() {
 }
 function humanSiegeToOpts(from) {
     const pc = S.playerColor;
-    return (T[from]?.adj||[]).filter(n => G.board[n]&&G.board[n].castle&&G.board[n].owner!==pc)
-        .map(n => ({name:n, owner:G.board[n].owner||'neutral', tax:T[n]?.tax||0, units:totalUnitCount(n)}));
+    return (T[from]?.adj||[]).filter(n =>
+        G.board[n] &&
+        G.board[n].castle &&
+        G.board[n].owner !== pc &&
+        !isSeaCrossing(from, n) &&      // no siege across sea lines
+        !humanIsDisputed(n)             // can't siege into a disputed territory
+    ).map(n => ({name:n, owner:G.board[n].owner||'neutral', tax:T[n]?.tax||0, units:totalUnitCount(n)}));
 }
 function humanSpendOpts() {
     const coins = G.coins[S.playerColor]||0;
@@ -5119,9 +5143,11 @@ function hfPickDest(idx, to) {
     if (step.type === 'expand') {
         const fortIdx = G.humanFlow.findIndex((s, i) => i > idx && s.type === 'fortify_city' && s.state !== 'done' && s.state !== 'skipped');
         if (fortIdx >= 0) {
-            const destIsCity    = (T[to]?.tax||0) > 0;
-            const destHasCastle = !!(G.board[to]?.castle);
-            const destQualifies = destIsCity || destHasCastle;
+            const destIsCity     = (T[to]?.tax||0) > 0;
+            const destHasCastle  = !!(G.board[to]?.castle);
+            // Disputed destination: player will be the attacker there, can't fortify it
+            const destDisputed   = humanIsDisputed(to);
+            const destQualifies  = (destIsCity || destHasCastle) && !destDisputed;
             if (destQualifies) {
                 // City or castle destination → ask before/after
                 step._fortIdx = fortIdx;  // remember where fortify_city lives
@@ -6384,7 +6410,7 @@ function resolveAutoBattle(b) {
             removeCasualties(dUnits,ah); removeCasualties(aUnits,dh);
             let arHtml=`<div style="margin-bottom:3px"><b>Round ${rounds} — Rank 2 Archers</b> (hit 5+)</div>`;
             if(aUnits.A>0)arHtml+=`<div style='font-size:0.8em;color:#555'>${attColorName} Archers</div>`+diceRowHTML(ar);
-            if(dCav>0||dUnits.A>0)arHtml+=`<div style='font-size:0.8em;color:#555'>${defColorName} Archers</div>`+diceRowHTML(dr);
+            if(dUnits.A>0)arHtml+=`<div style='font-size:0.8em;color:#555'>${defColorName} Archers</div>`+diceRowHTML(dr);
             const ins=[];
             if(ah>0)ins.push(`<b>Remove from ${b.to}:</b> ${unitDiffStr(dBef,dUnits)}`);
             if(dh>0)ins.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${unitDiffStr(aBef,aUnits)}`);
@@ -6419,16 +6445,16 @@ function resolveAutoBattle(b) {
         // Cmp1
         if(aVals.length||dVals.length) {
             const a1=aVals[0]??null, d1=dVals[0]??null;
-            if(a1!==null&&d1!==null){if(a1>d1){aHits++;cmpPairs.push(`${a1}>${d1}→Att`);}else{dHits++;cmpPairs.push(`${a1<=d1?'Tie/Def':a1+'<'+d1}→Def`);}}
-            else if(a1!==null){aHits++;cmpPairs.push(`Att only→Att`);}
-            else{dHits++;cmpPairs.push(`Def only→Def`);}
+            if(a1!==null&&d1!==null){if(a1>d1){aHits++;cmpPairs.push(`${a1}>${d1}→Att`);}else{dHits++;cmpPairs.push(`${a1===d1?`Tie(${a1})`:a1+'<'+d1}→Def`);}}
+            else if(a1!==null){aHits++;cmpPairs.push(`Att(${a1}) only→Att`);}
+            else{dHits++;cmpPairs.push(`Def(${d1}) only→Def`);}
         }
         // Cmp2
         const a2=aVals[1]??null, d2=dVals[1]??null;
         if(a2!==null||d2!==null){
-            if(a2!==null&&d2!==null){if(a2>d2){aHits++;cmpPairs.push(`${a2}>${d2}→Att`);}else{dHits++;cmpPairs.push(`→Def`);}}
-            else if(a2!==null){aHits++;cmpPairs.push(`Att→Att`);}
-            else{dHits++;cmpPairs.push(`Def→Def`);}
+            if(a2!==null&&d2!==null){if(a2>d2){aHits++;cmpPairs.push(`${a2}>${d2}→Att`);}else{dHits++;cmpPairs.push(`${a2===d2?`Tie(${a2})`:a2+'<'+d2}→Def`);}}
+            else if(a2!==null){aHits++;cmpPairs.push(`Att(${a2}) only→Att`);}
+            else{dHits++;cmpPairs.push(`Def(${d2}) only→Def`);}
         }
         const aBef4=snapUnits(aUnits), dBef4=snapUnits(dUnits);
         removeCasualties(dUnits,aHits); removeCasualties(aUnits,dHits);
@@ -6445,7 +6471,9 @@ function resolveAutoBattle(b) {
 
     // ── Final board state ──
     const attSurv = total(aUnits), defSurv = total(dUnits);
-    const winner = attSurv > 0 && defSurv === 0 ? b.color : attSurv === 0 ? 'defender' : 'draw';
+    const winner = attSurv > 0 && defSurv === 0 ? b.color
+                 : defSurv > 0 && attSurv === 0 ? 'defender'
+                 : 'draw'; // both eliminated (or neither — shouldn't happen)
 
     let outcomeHTML = '';
     if (winner === b.color) {
@@ -6453,15 +6481,18 @@ function resolveAutoBattle(b) {
             `<div class="board-instruction"><b>✓ ${attColorName} captures ${b.to}!</b><br>`+
             `Remove all ${defColorName} units from <b>${b.to}</b>.<br>`+
             `Place ${attColorName} survivors at <b>${b.to}</b>: <b>${unitRemainStr(aUnits)}</b>.<br>`+
-            (b.from !== '__editor__' ? `Remove ${unitDiffStr(aStart, aUnits)} from <b>${b.from}</b> (units that fought).` : '')+
+            (b.from !== '__editor__' && !b._prededucted
+                ? `Remove ${unitDiffStr(aStart, aUnits)} from <b>${b.from}</b> (units that fought).`
+                : b._prededucted ? `(Units already removed from ${b.from} when you moved them.)` : '')+
             `</div>`;
     } else if (winner === 'defender') {
         const attTotalLost = unitDiffStr(aStart, {F:0,A:0,C:0,S:0});
         const defTotalRemain = unitRemainStr(dUnits);
         outcomeHTML =
             `<div class="board-instruction neutral"><b>✗ ${defColorName} holds ${b.to}!</b><br>`+
-            (b.from !== '__editor__'
+            (b.from !== '__editor__' && !b._prededucted
                 ? `Remove all attacking ${attColorName} units from <b>${b.from}</b> that moved: <b>${unitRemainStr(b.movingUnits||aStart)}</b>.<br>`
+                : b._prededucted ? `(${attColorName} attacking units already removed from ${b.from} when you moved them.)<br>`
                 : `All attacking ${attColorName} units eliminated.<br>`)+
             `<b>${defColorName} remaining at ${b.to}:</b> ${defTotalRemain}</div>`;
     } else {
@@ -6472,31 +6503,16 @@ function resolveAutoBattle(b) {
     }
     htmlLog.push(outcomeHTML);
 
-    // Plain text log for the compact view (existing renderCombatPhase uses b._log)
     const plainLog = [];
     if (aSiege > 0 && targetHasCastle) plainLog.push(`Siege pre-fire.`);
     if (aArch+dArch > 0) plainLog.push(`Archer volley.`);
-    // Count rounds
-    const roundCount = htmlLog.filter((_,i)=> i >= (aSiege>0?1:0) + (aArch+dArch>0?1:0) && i < htmlLog.length-1).length;
-    plainLog.push(`${roundCount} combat round${roundCount!==1?'s':''}.`);
+    plainLog.push(`${rounds} main round${rounds!==1?'s':''}.`);
     plainLog.push(winner===b.color ? `✓ ${attColorName} captures ${b.to}! (${attSurv} survivors)` :
                   winner==='defender' ? `✗ ${defColorName} holds ${b.to}! (${defSurv} survivors)` :
                   `⚡ Both sides eliminated.`);
 
-    // Push compact combat narrative to game log
-    const _siegeStr = (aSiege > 0 && targetHasCastle) ? `SIEGE: ${htmlLog[0]?.includes('No casualties') ? '0 hits → defender loses none' : 'hits applied'}. ` : '';
-    const _archStr = (aArch+dArch > 0) ? `ARCHERS: Att ${htmlLog[aSiege>0?1:0]?.match(/\d+ hit/)?.[0]||'?'} → ${htmlLog[aSiege>0?1:0]?.includes('No casualties')?'no casualties':('Def loses '+unitDiffStr(dStart,dUnits).slice(0,40)||'?')+' | Def '+((dArch>0)?'hits':0+' h')+' → '+(dHits>0?'Att loses '+unitDiffStr(aStart,aUnits).slice(0,40):'Att loses none')}. ` : '';
-    let _combatSummary = `${_siegeStr}${_archStr}`;
-    for (let ri=0; ri<rounds; ri++) {
-        const rh = htmlLog[(aSiege>0&&targetHasCastle?1:0)+(aArch+dArch>0?1:0)+ri]||'';
-        const _def = rh.match(/Remove from [^:]+: (.+?)(?:<|$)/)?.[1]||'';
-        const _att = rh.match(/Remove from [^:]+: (.+?)(?:<br>|<\/)/g)?.[1]?.replace(/<[^>]+>/g,'')||'';
-        const _aH = (aRolls?.filter(r=>r.hit).length||0); const _dH = (dRolls?.filter(r=>r.hit).length||0);
-        _combatSummary += `R${ri+1}: `;
-    }
-    // Simple plain-English log entry for each battle
-    const _siegeLine = (aSiege>0&&targetHasCastle) ? `SIEGE: ${plainLog[0]||'siege'} ` : '';
-    const _archLine  = (aArch+dArch>0)             ? `ARCHERS: Att ${aArch} bow, Def ${dArch} bow. ` : '';
+    const _siegeLine = (aSiege>0&&targetHasCastle) ? `SIEGE pre-fire. ` : '';
+    const _archLine  = (aArch+dArch>0)             ? `ARCHERS: Att ${aArch}, Def ${dArch}. ` : '';
     const _roundLine = `${rounds} main round${rounds!==1?'s':''}.`;
     cLog(b.color, `  ${attColorName} vs ${defColorName} at ${b.to}: ${_siegeLine}${_archLine}${_roundLine} → ${plainLog[plainLog.length-1]}`);
 
