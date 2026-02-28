@@ -1141,6 +1141,14 @@ function isContested(name) {
     // A territory is contested if it has an unresolved queued battle attacking INTO it
     return (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
 }
+// Is `color` the ATTACKER in a pending battle at `name`?
+function isAttackerOf(color, name) {
+    return (G.roundCombats||[]).some(b => b.to === name && !b._resolved && b.color === color);
+}
+// Is `color` the DEFENDER in a pending battle at `name`?
+function isDefenderOf(color, name) {
+    return isContested(name) && G.board[name]?.owner === color;
+}
 
 function taxYield(color, cityName) {
     // Flood-fill from cityName through connected own territories.
@@ -1184,53 +1192,58 @@ function decideTax(color) {
 
 function decideSpendPlacements(color, purchase) {
     // Returns array of {territory, units} placement instructions
+    // Recruit territories: cities (tax>0) OR non-city territories that already have a castle
     // Cannot recruit in contested territories (battles pending there)
-    const owned = ownedBy(color).filter(n => T[n].tax > 0 && !isContested(n))
-        .sort((a,b) => T[b].tax - T[a].tax || totalUnitCount(a) - totalUnitCount(b));
-    
+    const recruitTerrs = ownedBy(color).filter(n =>
+        (T[n].tax > 0 || G.board[n].castle) && !isContested(n)
+    ).sort((a,b) => (T[b].tax||0) - (T[a].tax||0) || totalUnitCount(a) - totalUnitCount(b));
+    // Fallback: if no recruit territory, use any city; last resort any owned territory (shouldn't happen)
+    const recruitFallback = ownedBy(color).filter(n => T[n].tax > 0 && !isContested(n))
+        .sort((a,b) => T[b].tax - T[a].tax)[0] || ownedBy(color).filter(n => T[n].tax > 0)[0];
+
     const placements = [];
     const unitsToPlace = { C: purchase.C||0, A: purchase.A||0, F: purchase.F||0 };
-    
-    // Castle placement
+
+    // Castle placement — can go in ANY owned territory (castles aren't limited to cities)
     if (purchase.castle) {
-        const castleDest = ownedBy(color).filter(n => T[n].tax > 0 && !G.board[n].castle)
-            .sort((a,b) => T[b].tax - T[a].tax || totalUnitCount(a) - totalUnitCount(b))[0];
+        const castleDest = ownedBy(color).filter(n => !G.board[n].castle && !isContested(n))
+            .sort((a,b) => (T[b].tax||0) - (T[a].tax||0) || totalUnitCount(a) - totalUnitCount(b))[0];
         if (castleDest) placements.push({ territory: castleDest, type:'castle', detail:'Place Castle here' });
     }
     
-    // Unit placement — 1 at a time, best quality first to highest-tax city
-    let cityIdx = 0;
+    // Unit placement — 1 at a time, best quality first to highest-tax/castle city
+    let terrIdx = 0;
     const unitOrder = [
         ...Array(unitsToPlace.C).fill('C'),
         ...Array(unitsToPlace.A).fill('A'),
         ...Array(unitsToPlace.F).fill('F'),
     ];
     unitOrder.forEach(type => {
-        const city = owned[cityIdx % owned.length];
-        if (!city) return;
-        // Only merge if same city AND same unit type
-        const existing = placements.find(p => p.territory === city && p.type === 'units' && p.unitType === type);
+        const dest = recruitTerrs[terrIdx % (recruitTerrs.length||1)] || recruitFallback;
+        if (!dest) return;
+        const existing = placements.find(p => p.territory === dest && p.type === 'units' && p.unitType === type);
         if (existing) existing.count++;
-        else placements.push({ territory: city, type:'units', unitType: type, count: 1 });
-        cityIdx++;
+        else placements.push({ territory: dest, type:'units', unitType: type, count: 1 });
+        terrIdx++;
     });
     
-    // Siege Engine
+    // Siege Engine — must recruit to a city or castle territory; prefer one adjacent to enemy castle
     if (purchase.S) {
-        // Find own territory closest to enemy castle
-        const enemyCastles = Object.keys(G.board).filter(n => G.board[n].castle && G.board[n].owner !== color && G.board[n].owner !== 'neutral');
-        let bestSiegeDest = null, bestDist = 999;
+        const enemyCastles = Object.keys(G.board).filter(n =>
+            G.board[n].castle && G.board[n].owner !== color && G.board[n].owner !== 'neutral');
+        // Valid siege recruit locations: cities or castle territories that are not contested
+        const validSiegeTerrs = recruitTerrs.slice(); // already filtered to cities/castles
+        let bestSiegeDest = null;
+        // Prefer a valid territory adjacent to an enemy castle
         for (const ec of enemyCastles) {
-            for (const t of ownedBy(color)) {
-                if (T[t].adj.includes(ec) || t === ec) { // adjacent
-                    const d = 1;
-                    if (d < bestDist || (d === bestDist && T[t].tax > (T[bestSiegeDest]?.tax||0))) {
-                        bestDist = d; bestSiegeDest = t;
-                    }
+            for (const t of validSiegeTerrs) {
+                if (T[t]?.adj?.includes(ec)) {
+                    if (!bestSiegeDest || (T[t].tax||0) > (T[bestSiegeDest].tax||0)) bestSiegeDest = t;
                 }
             }
         }
-        if (!bestSiegeDest) bestSiegeDest = owned[0] || ownedBy(color).filter(n => !isContested(n))[0] || ownedBy(color)[0];
+        // Fallback: highest-tax valid territory (city or castle-territory)
+        if (!bestSiegeDest) bestSiegeDest = validSiegeTerrs[0] || recruitFallback;
         if (bestSiegeDest) placements.push({ territory: bestSiegeDest, type:'siege', detail:'Place Siege Engine here' });
     }
     return placements;
@@ -1326,7 +1339,11 @@ function decidePosition(color) {
 }
 
 function decideFortify(color) {
-    const opts = ownedBy(color).filter(n => T[n].tax > 0 || G.board[n].castle);
+    // Can fortify contested territories only as the DEFENDER (it's still your city)
+    const opts = ownedBy(color).filter(n =>
+        (T[n].tax > 0 || G.board[n].castle) &&
+        !(isContested(n) && isAttackerOf(color, n))
+    );
     if (!opts.length) return null;
     // Capitals = starting cities (any city in CAPITALS list)
     const capitalNames = new Set(CAPITALS.map(c => c.name));
@@ -1500,7 +1517,11 @@ function applyFortify(territory, count) {
     if (!G.board[territory]) return;
     const before = totalUnitCount(territory);
     G.board[territory].units.F += count;
-    cLog(G.board[territory]?.owner, `FORTIFY +${count} Footm${count>1?'en':'an'} at ${boardStr(territory)} (was ${before} total)`);
+    const _fColor = G.board[territory]?.owner;
+    const _fConNote = isContested(territory)
+        ? (isDefenderOf(_fColor, territory) ? ' [CONTESTED — DEFENDING]' : ' [CONTESTED — ATTACKER ⚠]')
+        : '';
+    cLog(_fColor, `FORTIFY +${count} Footm${count>1?'en':'an'} at ${boardStr(territory)}${_fConNote} (was ${before} total)`);
 }
 
 function applySpend(color, purchase, placements) {
@@ -3513,7 +3534,7 @@ function renderBEFull(bs) {
                         DEF ${defColor.toUpperCase()}${defColor===S.playerColor?' (YOU)':''}: ${defUnits} (${unitTotal(brd.units)})
                     </span>
                     <span style="background:${attHex};color:${attTxt};padding:2px 7px;border-radius:4px;font-size:0.78em;font-weight:700;">
-                        ATT ${b.color.toUpperCase()}${b.color===S.playerColor?' (YOU)':''}: ${attUnits} (${unitTotal(b.movingUnits||{})})
+                        ⚔ ATTACKER: ${cName(b.color)}${b.color===S.playerColor?' (YOU)':''} · ${attUnits} (${unitTotal(b.movingUnits||{})})
                     </span>
                 </div>
             </div>`;
@@ -3690,12 +3711,19 @@ function csReset() {
         active:false, attackerColor:null, defenderColor:null,
         fromTerr:null, toTerr:null,
         attUnits:null, defUnits:null,   // {F,A,C,S} — updated each phase
-        phase:null,     // 'siege'|'archer'|'main'|'result'
+        // Phases: 'siege' → 'archer' → 'cavalry' → 'main' → (loop) | 'result'
+        phase:null,
         log:[],         // round history strings
         humanAtt:false, humanDef:false,
         humanHits:0, humanReady:false,
+        // Rank 4 main combat: store individual die VALUES (not just hit count)
+        humanMainDice:null,  // {att:[v,v,v], def:[v,v]} — only populated for human sides
         autoRollsAtt:null, autoRollsDef:null,
         pendingStepIdx:-1,
+        // Castle re-roll: defender only, once per combat round, one rank only
+        castleRerollAvail:false,  // true iff defender's territory has a castle
+        castleRerollUsed:false,   // flips to true when used; resets at each round boundary (after main)
+        castleRerollMsg:null,     // message to show after auto re-roll
     };
 }
 csReset();
@@ -3710,13 +3738,58 @@ function csStr(u){
     if(u.S>0) p.push(u.S+'Sie');
     return p.length?p.join('+'):'0';
 }
-function csDice(u,phase){
-    if(phase==='siege')  return (u.S||0)*2;           // 2 dice per siege engine (attacker only, vs castle)
-    if(phase==='archer') return (u.A||0);              // 1 die per archer
-    if(phase==='main')   return (u.C||0)*2+(u.F||0)+(u.A||0)+(u.S||0); // Cav=2, all others=1
+// ── Correct dice counts per rank ──────────────────────────────────────
+// Rank 1 Siege: 2 dice/engine, hit on 3+ (attacker only vs castle)
+// Rank 2 Archers: 1 die/archer, hit on 5+ (both sides)
+// Rank 3 Cavalry: 1 die/cav, hit on 3+ (both sides)
+// Rank 4 Main: all units count, att capped 3 dice, def capped 2 dice, comparison mechanic
+function csDice(u, phase, role) {
+    if (phase==='siege')   return (u.S||0)*2;
+    if (phase==='archer')  return (u.A||0);
+    if (phase==='cavalry') return (u.C||0);
+    if (phase==='main')    return role==='def' ? Math.min(csTotal(u),2) : Math.min(csTotal(u),3);
     return 0;
 }
-function csRollN(n){ return Array.from({length:n},()=>{ const v=Math.floor(Math.random()*6)+1; return {v,hit:v>=4,f:DFACES[v-1]}; }); }
+// Roll n dice with given hit threshold
+function csRollN(n, hitOn) {
+    const threshold = hitOn || 4;
+    return Array.from({length:n}, () => { const v=Math.floor(Math.random()*6)+1; return {v, hit:v>=threshold, f:DFACES[v-1]}; });
+}
+// Roll n dice returning just values (for Rank 4 comparison mechanic)
+function csRollVals(n) { return Array.from({length:n}, () => Math.floor(Math.random()*6)+1).sort((a,b)=>b-a); }
+// Rank 4 comparison mechanic: attVals and defVals are value arrays sorted DESCENDING
+// Returns {attHits, defHits, log: [...strings]}
+function resolveMainComparisons(attVals, defVals) {
+    let attHits=0, defHits=0;
+    const log = [];
+    // Comparison 1: best att die vs best def die
+    const a1 = attVals[0] ?? null;
+    const d1 = defVals[0] ?? null;
+    if (a1 !== null && d1 !== null) {
+        if (a1 > d1) { attHits++; log.push(`Cmp1: Att ${a1} > Def ${d1} → Attacker hits`); }
+        else         { defHits++; log.push(`Cmp1: ${a1===d1?'Tie':'Def higher'} (Att ${a1} vs Def ${d1}) → Defender hits`); }
+    } else if (a1 !== null) { attHits++; log.push(`Cmp1: Attacker only — scores hit`); }
+    else if (d1 !== null)   { defHits++; log.push(`Cmp1: Defender only — scores hit`); }
+    // Comparison 2: among remaining dice from both sides
+    const attRem = attVals.slice(1);
+    const defRem = defVals.slice(1);
+    const a2 = attRem[0] ?? null;
+    const d2 = defRem[0] ?? null;
+    if (a2 !== null && d2 !== null) {
+        if (a2 > d2) { attHits++; log.push(`Cmp2: Att ${a2} > Def ${d2} → Attacker hits`); }
+        else         { defHits++; log.push(`Cmp2: ${a2===d2?'Tie':'Def higher'} (Att ${a2} vs Def ${d2}) → Defender hits`); }
+    } else if (a2 !== null) { attHits++; log.push(`Cmp2: Attacker only — scores hit`); }
+    else if (d2 !== null)   { defHits++; log.push(`Cmp2: Defender only — scores hit`); }
+    return {attHits, defHits, log};
+}
+// Determine the first applicable phase given current unit state
+function csFirstPhase() {
+    const hasCastle = G.board[CS.toTerr]?.castle;
+    if (hasCastle && (CS.attUnits.S||0)>0) return 'siege';
+    if ((CS.attUnits.A||0)>0 || (CS.defUnits.A||0)>0) return 'archer';
+    if ((CS.attUnits.C||0)>0 || (CS.defUnits.C||0)>0) return 'cavalry';
+    return 'main';
+}
 function csRemove(u,hits){
     const r={...u}; let rem=hits;
     for(const k of ['F','A','S','C']){ const t=Math.min(r[k]||0,rem); r[k]=(r[k]||0)-t; rem-=t; }
@@ -3781,13 +3854,11 @@ function openCombat(attackerColor, defenderColor, fromTerr, toTerr, stepIdx){
     CS.pendingStepIdx=stepIdx;
     document.getElementById('combat-title').textContent='COMBAT: '+toTerr;
 
-    // Determine starting phase
-    const hasCastle=G.board[toTerr].castle;
-    const hasSiege=(CS.attUnits.S||0)>0;
-    const hasArchers=(CS.attUnits.A||0)>0||(CS.defUnits.A||0)>0;
-    if(hasCastle && hasSiege) CS.phase='siege';
-    else if(hasArchers) CS.phase='archer';
-    else CS.phase='main';
+    // Determine starting phase (all 4 ranks)
+    CS.phase = csFirstPhase();
+    // Castle re-roll: available once per round to the DEFENDER if the contested territory has a castle
+    CS.castleRerollAvail = !!(G.board[CS.toTerr]?.castle);
+    CS.castleRerollUsed  = false;
 
     const autoOnly=!CS.humanAtt && !CS.humanDef;
     if(autoOnly){
@@ -3805,37 +3876,75 @@ function runAutoCombat(){
     let att={...CS.attUnits}, def={...CS.defUnits};
     log.push('Att: '+sideColor(CS.attackerColor)+' ['+csStr(att)+'] vs Def: '+sideColor(CS.defenderColor)+' ['+csStr(def)+']');
 
-    // Siege
-    if(CS.phase==='siege'){
-        const r=csRollN(csDice(att,'siege'));
-        const h=r.filter(d=>d.hit).length;
-        const b={...def}; def=csRemove(def,h);
-        log.push('⚙ SIEGE: '+r.map(d=>d.f).join('')+' → '+h+' hits → defender loses '+csDescLost(csDiff(b,def)));
-        const hasArch=(att.A||0)>0||(def.A||0)>0;
-        CS.phase=hasArch?'archer':'main';
+    // Auto-combat runs through all 4 ranks per round
+    function autoPhaseActive(phase) {
+        if (phase==='siege') return G.board[CS.toTerr]?.castle && (att.S||0)>0;
+        if (phase==='archer')  return (att.A||0)>0||(def.A||0)>0;
+        if (phase==='cavalry') return (att.C||0)>0||(def.C||0)>0;
+        return true; // main always fires
     }
-    // Archers
-    if(CS.phase==='archer'){
-        const ra=csRollN(csDice(att,'archer')), rd=csRollN(csDice(def,'archer'));
-        const ha=ra.filter(d=>d.hit).length, hd=rd.filter(d=>d.hit).length;
-        const ba={...att}, bd={...def};
-        def=csRemove(def,ha); att=csRemove(att,hd);
-        log.push('🏹 ARCHERS: Att '+ra.map(d=>d.f).join('')+'='+ha+'h | Def '+rd.map(d=>d.f).join('')+'='+hd+'h');
-        if(ha>0) log.push('  Def loses: '+csDescLost(csDiff(bd,def)));
-        if(hd>0) log.push('  Att loses: '+csDescLost(csDiff(ba,att)));
-        CS.phase='main';
-    }
-    // Main rounds
     let rnd=0;
-    while(csTotal(att)>0 && csTotal(def)>0 && rnd<12){
+    const hasCastle_auto = G.board[CS.toTerr]?.castle || false;
+    let rerollUsed_auto = false;
+    while(csTotal(att)>0 && csTotal(def)>0 && rnd<15){
         rnd++;
-        const ra=csRollN(csDice(att,'main')), rd=csRollN(csDice(def,'main'));
-        const ha=ra.filter(d=>d.hit).length, hd=rd.filter(d=>d.hit).length;
-        const ba={...att}, bd={...def};
-        def=csRemove(def,ha); att=csRemove(att,hd);
-        log.push('⚔ R'+rnd+': Att ['+ra.map(d=>d.f).join('')+']='+ha+'h→Def loses '+csDescLost(csDiff(bd,def))+
-                 ' | Def ['+rd.map(d=>d.f).join('')+']='+hd+'h→Att loses '+csDescLost(csDiff(ba,att)));
-        log.push('  Remaining — Att:'+csStr(att)+' Def:'+csStr(def));
+        rerollUsed_auto = false; // reset castle re-roll each round
+        // Rank 1: Siege (attacker only, vs castle, hit 3+)
+        if(autoPhaseActive('siege')){
+            const r=csRollN(csDice(att,'siege'),3);
+            const h=r.filter(d=>d.hit).length;
+            const bd={...def}; def=csRemove(def,h);
+            log.push('🏰 R'+rnd+' Siege: '+r.map(d=>d.f).join('')+'→'+h+'h Def loses '+csDescLost(csDiff(bd,def)));
+            if(!csTotal(def)){break;}
+        }
+        // Rank 2: Archers both sides (hit 5+)
+        if(autoPhaseActive('archer')){
+            const ra=csRollN(csDice(att,'archer'),5);
+            let rd=csRollN(csDice(def,'archer'),5);
+            // Castle re-roll for defender: re-roll if 0 hits
+            if(hasCastle_auto && !rerollUsed_auto && rd.length>0 && rd.filter(d=>d.hit).length===0) {
+                rd=csRollN(csDice(def,'archer'),5); rerollUsed_auto=true;
+                log.push('🏰 Castle re-roll: '+cName(CS.defenderColor)+' re-rolled Rank 2 Archers (0 hits)');
+            }
+            const ha=ra.filter(d=>d.hit).length, hd=rd.filter(d=>d.hit).length;
+            const ba={...att}, bd={...def};
+            def=csRemove(def,ha); att=csRemove(att,hd);
+            log.push('🏹 R'+rnd+' Archers: Att['+ra.map(d=>d.f).join('')+']='+ha+'h→Def loses '+csDescLost(csDiff(bd,def))+
+                     ' | Def['+rd.map(d=>d.f).join('')+']='+hd+'h→Att loses '+csDescLost(csDiff(ba,att)));
+            if(!csTotal(att)||!csTotal(def)){break;}
+        }
+        // Rank 3: Cavalry both sides (hit 3+)
+        if(autoPhaseActive('cavalry')){
+            const ra=csRollN(csDice(att,'cavalry'),3);
+            let rd=csRollN(csDice(def,'cavalry'),3);
+            // Castle re-roll for defender: re-roll if 0 hits
+            if(hasCastle_auto && !rerollUsed_auto && rd.length>0 && rd.filter(d=>d.hit).length===0) {
+                rd=csRollN(csDice(def,'cavalry'),3); rerollUsed_auto=true;
+                log.push('🏰 Castle re-roll: '+cName(CS.defenderColor)+' re-rolled Rank 3 Cavalry (0 hits)');
+            }
+            const ha=ra.filter(d=>d.hit).length, hd=rd.filter(d=>d.hit).length;
+            const ba={...att}, bd={...def};
+            def=csRemove(def,ha); att=csRemove(att,hd);
+            log.push('🐴 R'+rnd+' Cavalry: Att['+ra.map(d=>d.f).join('')+']='+ha+'h→Def loses '+csDescLost(csDiff(bd,def))+
+                     ' | Def['+rd.map(d=>d.f).join('')+']='+hd+'h→Att loses '+csDescLost(csDiff(ba,att)));
+            if(!csTotal(att)||!csTotal(def)){break;}
+        }
+        // Rank 4: Main — comparison mechanic (att≤3, def≤2)
+        if(csTotal(att)>0 && csTotal(def)>0){
+            const attV=csRollVals(csDice(att,'main','att'));
+            let defV=csRollVals(csDice(def,'main','def'));
+            // Castle re-roll for defender: re-roll if best def die < best att die
+            if(hasCastle_auto && !rerollUsed_auto && defV.length>0 && (defV[0]<attV[0])) {
+                defV=csRollVals(csDice(def,'main','def')); rerollUsed_auto=true;
+                log.push('🏰 Castle re-roll: '+cName(CS.defenderColor)+' re-rolled Rank 4 Main (best die losing)');
+            }
+            const {attHits:ha,defHits:hd,log:cmpLog}=resolveMainComparisons(attV,defV);
+            const ba={...att}, bd={...def};
+            def=csRemove(def,ha); att=csRemove(att,hd);
+            log.push('⚔ R'+rnd+' Main: Att['+attV.join(',')+'] Def['+defV.join(',')+']. '+cmpLog.join(' | '));
+            log.push('  Att loses '+csDescLost(csDiff(ba,att))+' | Def loses '+csDescLost(csDiff(bd,def))+
+                     ' | Remaining Att:'+csStr(att)+' Def:'+csStr(def));
+        }
     }
 
     const attAliveAuto=csTotal(att)>0, defAliveAuto=csTotal(def)>0;
@@ -3862,28 +3971,71 @@ function runAutoCombat(){
 
 // ── INTERACTIVE COMBAT ────────────────────────────────────────────
 function preparePhase(){
-    CS.autoRollsAtt=null; CS.autoRollsDef=null; CS.humanHits=0; CS.humanReady=false;
+    CS.autoRollsAtt=null; CS.autoRollsDef=null;
+    CS.humanHits=0; CS.humanReady=false; CS.humanMainDice=null;
     if(CS.phase==='siege'){
-        if(!CS.humanAtt) CS.autoRollsAtt=csRollN(csDice(CS.attUnits,'siege'));
-        // Human attacker with 0 siege engines: no dice to roll, pre-ready
+        // Rank 1: attacker siege engines vs castle — 2 dice each, hit on 3+
+        if(!CS.humanAtt) CS.autoRollsAtt=csRollN(csDice(CS.attUnits,'siege'), 3);
         if(CS.humanAtt && csDice(CS.attUnits,'siege')===0) CS.humanReady=true;
     } else if(CS.phase==='archer'){
-        if(!CS.humanAtt && (CS.attUnits.A||0)>0) CS.autoRollsAtt=csRollN(csDice(CS.attUnits,'archer'));
-        if(!CS.humanDef && (CS.defUnits.A||0)>0) CS.autoRollsDef=csRollN(csDice(CS.defUnits,'archer'));
-        // Human side with 0 archers: pre-ready (other side's archers may still fire)
-        if(CS.humanAtt && csDice(CS.attUnits,'archer')===0) CS.humanReady=true;
-        if(CS.humanDef && csDice(CS.defUnits,'archer')===0) CS.humanReady=true;
+        // Rank 2: archers both sides — 1 die each, hit on 5+
+        if(!CS.humanAtt && (CS.attUnits.A||0)>0) CS.autoRollsAtt=csRollN(csDice(CS.attUnits,'archer'), 5);
+        if(!CS.humanDef && (CS.defUnits.A||0)>0) CS.autoRollsDef=csRollN(csDice(CS.defUnits,'archer'), 5);
+        // Automa defender castle re-roll: re-roll if ALL archer dice missed (0 hits)
+        if(!CS.humanDef && CS.castleRerollAvail && !CS.castleRerollUsed && CS.autoRollsDef) {
+            const defHits = CS.autoRollsDef.filter(d=>d.hit).length;
+            if(defHits === 0 && CS.autoRollsDef.length > 0) {
+                CS.autoRollsDef = csRollN(csDice(CS.defUnits,'archer'), 5);
+                CS.castleRerollUsed = true;
+                CS.castleRerollMsg = '🏰 '+cName(CS.defenderColor)+' used castle re-roll on Rank 2 Archers (0 hits → re-rolled)';
+            }
+        }
+        if(CS.humanAtt && (CS.attUnits.A||0)===0) CS.humanReady=true;
+        if(CS.humanDef && (CS.defUnits.A||0)===0) CS.humanReady=true;
+    } else if(CS.phase==='cavalry'){
+        // Rank 3: cavalry both sides — 1 die each, hit on 3+
+        if(!CS.humanAtt && (CS.attUnits.C||0)>0) CS.autoRollsAtt=csRollN(csDice(CS.attUnits,'cavalry'), 3);
+        if(!CS.humanDef && (CS.defUnits.C||0)>0) CS.autoRollsDef=csRollN(csDice(CS.defUnits,'cavalry'), 3);
+        // Automa defender castle re-roll: re-roll if ALL cavalry dice missed (0 hits)
+        if(!CS.humanDef && CS.castleRerollAvail && !CS.castleRerollUsed && CS.autoRollsDef) {
+            const defHits = CS.autoRollsDef.filter(d=>d.hit).length;
+            if(defHits === 0 && CS.autoRollsDef.length > 0) {
+                CS.autoRollsDef = csRollN(csDice(CS.defUnits,'cavalry'), 3);
+                CS.castleRerollUsed = true;
+                CS.castleRerollMsg = '🏰 '+cName(CS.defenderColor)+' used castle re-roll on Rank 3 Cavalry (0 hits → re-rolled)';
+            }
+        }
+        if(CS.humanAtt && (CS.attUnits.C||0)===0) CS.humanReady=true;
+        if(CS.humanDef && (CS.defUnits.C||0)===0) CS.humanReady=true;
     } else if(CS.phase==='main'){
-        if(!CS.humanAtt) CS.autoRollsAtt=csRollN(csDice(CS.attUnits,'main'));
-        if(!CS.humanDef) CS.autoRollsDef=csRollN(csDice(CS.defUnits,'main'));
-        // Human side with 0 combat units: pre-ready (they're about to lose)
-        if(CS.humanAtt && csDice(CS.attUnits,'main')===0) CS.humanReady=true;
-        if(CS.humanDef && csDice(CS.defUnits,'main')===0) CS.humanReady=true;
+        // Rank 4: all units count, att≤3 dice, def≤2 dice, comparison mechanic (no fixed hit threshold)
+        const attN = csDice(CS.attUnits,'main','att');
+        const defN = csDice(CS.defUnits,'main','def');
+        if(!CS.humanAtt) CS.autoRollsAtt = { vals: csRollVals(attN) };
+        if(!CS.humanDef) CS.autoRollsDef = { vals: csRollVals(defN) };
+        // For human sides, init humanMainDice (values to enter)
+        CS.humanMainDice = {};
+        if(CS.humanAtt) CS.humanMainDice.att = Array(attN).fill(1);
+        if(CS.humanDef) CS.humanMainDice.def = Array(defN).fill(1);
+        // Automa defender castle re-roll on main: re-roll if best def die < best att die AND castle available
+        if(!CS.humanDef && CS.castleRerollAvail && !CS.castleRerollUsed && CS.autoRollsDef) {
+            const attBest = CS.autoRollsAtt ? Math.max(...CS.autoRollsAtt.vals) : 0;
+            const defBest = Math.max(...CS.autoRollsDef.vals);
+            if(defBest < attBest && defN > 0) {  // defender losing both comparisons — re-roll
+                CS.autoRollsDef = { vals: csRollVals(defN) };
+                CS.castleRerollUsed = true;
+                CS.castleRerollMsg = '🏰 '+cName(CS.defenderColor)+' used castle re-roll on Rank 4 Main (best die too low → re-rolled)';
+            }
+        }
+        // If a human side has 0 units (shouldn't happen), auto-ready
+        if(CS.humanAtt && attN===0) CS.humanReady=true;
+        if(CS.humanDef && defN===0) CS.humanReady=true;
     }
 }
 
 function renderCombatUI(){
-    const phaseNames={siege:'SIEGE PRE-BATTLE',archer:'ARCHER VOLLEY',main:'MAIN COMBAT — ROUND '+(CS.log.filter(l=>l.startsWith('⚔')).length+1),result:'RESULT'};
+    const rndN = CS.log.filter(l=>l.startsWith('⚔')).length+1;
+    const phaseNames={siege:'RANK 1 — SIEGE',archer:'RANK 2 — ARCHER VOLLEY',cavalry:'RANK 3 — CAVALRY',main:'RANK 4 — MAIN COMBAT (Round '+rndN+')',result:'RESULT'};
     document.getElementById('combat-phase-label').textContent=phaseNames[CS.phase]||CS.phase.toUpperCase();
 
     if(CS.phase==='result'){ renderResult(); return; }
@@ -3895,11 +4047,13 @@ function renderCombatUI(){
     const sidesHTML=
         '<div class="combat-sides-row">'+
             '<div class="combat-side" style="'+tileStyle(CS.attackerColor)+'">'+
+                '<div style="font-size:0.65em;opacity:0.75;font-weight:700;letter-spacing:0.08em;">⚔ ATTACKER</div>'+
                 '<div class="sn">'+sideColor(CS.attackerColor)+'</div>'+
                 '<div class="su">'+csStr(CS.attUnits)+' ('+attTotal+' total)</div>'+
             '</div>'+
             '<div class="combat-vs">⚔'+castleIcon+'</div>'+
             '<div class="combat-side" style="'+tileStyle(CS.defenderColor)+'">'+
+                '<div style="font-size:0.65em;opacity:0.75;font-weight:700;letter-spacing:0.08em;">🛡 DEFENDER</div>'+
                 '<div class="sn">'+sideColor(CS.defenderColor)+'</div>'+
                 '<div class="su">'+csStr(CS.defUnits)+' ('+defTotal+' total)</div>'+
             '</div>'+
@@ -3907,11 +4061,24 @@ function renderCombatUI(){
 
     // Phase explanation
     const explainMap={
-        siege:'<b>SIEGE PRE-BATTLE:</b> Siege Engines fire first. Each Siege Engine rolls 2 dice (hit on 4+). Only the defender takes hits — archers and main combat come after.',
-        archer:'<b>ARCHER VOLLEY:</b> Both sides\' archers fire simultaneously before main combat. Each archer rolls 1 die (hit on 4+). Both sides remove casualties at the same time.',
-        main:'<b>MAIN COMBAT:</b> Both sides fight simultaneously. Each Cavalry unit rolls 2 dice, each Footman rolls 1 die. Hit on 4+. Both sides apply hits simultaneously.',
+        siege:'<b>RANK 1 — SIEGE:</b> Attacker\'s Siege Engines fire first. Each engine rolls <b>2 dice, hit on 3+</b>. Only the defender takes casualties. Siege Engines are required to attack a castled territory.',
+        archer:'<b>RANK 2 — ARCHERS:</b> Both sides\' archers fire simultaneously. Each archer rolls <b>1 die, hit on 5+</b>. Both sides remove casualties at the same time.',
+        cavalry:'<b>RANK 3 — CAVALRY:</b> Both sides\' cavalry charge simultaneously. Each cavalry rolls <b>1 die, hit on 3+</b>. Both sides remove casualties at the same time.',
+        main:'<b>RANK 4 — MAIN COMBAT:</b> Count ALL your units. Attacker rolls up to <b>3 dice</b>, Defender rolls up to <b>2 dice</b>. Compare highest dice: higher side scores a hit (defender wins ties). Then compare next remaining dice. Both hits applied simultaneously. Then return to Rank 1.',
     };
-    const explainHTML='<div class="info-box" style="margin-bottom:10px;">'+explainMap[CS.phase]+'</div>';
+    // Castle re-roll banner
+    const castleCanReroll = CS.castleRerollAvail && !CS.castleRerollUsed && CS.phase !== 'siege';
+    const castleRerollBanner = castleCanReroll && CS.humanDef
+        ? '<div style="background:rgba(200,149,42,0.12);border:1.5px solid var(--gold,#c8952a);border-radius:8px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;">'+
+          '<span style="font-size:0.85em;">🏰 <b>Castle Re-roll available</b> — you may re-roll your dice for ONE rank this round (defender bonus, once per round).</span>'+
+          '<button onclick="csHumanReroll()" style="background:var(--gold,#c8952a);color:#fff;border:none;border-radius:6px;padding:5px 12px;font-family:Cinzel,serif;font-size:0.82em;font-weight:700;cursor:pointer;white-space:nowrap;">🏰 USE RE-ROLL</button>'+
+          '</div>'
+        : (castleCanReroll && !CS.humanDef
+            ? '<div style="background:rgba(139,26,26,0.06);border:1px solid #c0a060;border-radius:6px;padding:6px 12px;margin-bottom:8px;font-size:0.8em;color:#8b6914;">🏰 Castle re-roll available to '+cName(CS.defenderColor)+' (defender) — auto-deciding...</div>'
+            : (CS.castleRerollUsed && CS.castleRerollMsg
+                ? '<div style="background:rgba(200,149,42,0.08);border:1px solid var(--gold,#c8952a);border-radius:6px;padding:6px 12px;margin-bottom:8px;font-size:0.8em;">'+CS.castleRerollMsg+'</div>'
+                : ''));
+    const explainHTML='<div class="info-box" style="margin-bottom:10px;">'+explainMap[CS.phase]+'</div>'+castleRerollBanner;
 
     // Round log
     const logHTML=CS.log.length?
@@ -3927,10 +4094,11 @@ function renderCombatUI(){
             '&nbsp;<span class="hits-summary '+(hits>0?'some':'none')+'">= '+hits+' hit'+(hits!==1?'s':'')+'</span>'+
             '</div></div>';
     }
-    function humanHTML(diceCount, label){
+    function humanHTML(diceCount, label, hitOn){
         if(!diceCount) return '';
-        return '<div class="human-roll-box"><h5>⚔ YOUR ROLL — '+label+'</h5>'+
-            '<div>Roll <span class="dice-count-big">'+diceCount+'</span> dice &nbsp;&nbsp;<b>Hit on 4, 5, or 6</b></div>'+
+        const hitStr = hitOn===3?'3, 4, 5, or 6':hitOn===5?'5 or 6':'4, 5, or 6';
+        return '<div class="human-roll-box"><h5>🎲 YOUR ROLL — '+label+'</h5>'+
+            '<div>Roll <span class="dice-count-big">'+diceCount+'</span> dice &nbsp;&nbsp;<b>Hit on '+hitStr+'</b></div>'+
             '<div class="hit-input-row">'+
                 '<span>Your hits:</span>'+
                 '<button class="hs-btn" onclick="csAdjHits(-1)">−</button>'+
@@ -3938,28 +4106,63 @@ function renderCombatUI(){
                 '<button class="hs-btn" onclick="csAdjHits(1)">+</button>'+
                 '<span style="color:var(--ink-light);font-size:0.85em;">(max '+diceCount+')</span>'+
             '</div>'+
-            (CS.humanReady?'<div style="color:#1e7e44;font-size:0.85em;margin-top:6px;">✓ '+CS.humanHits+' hit'+(CS.humanHits!==1?'s':'')+'  recorded — tap Apply Hits to continue.</div>':'')+
+            (CS.humanReady?'<div style="color:#1e7e44;font-size:0.85em;margin-top:6px;">✓ '+CS.humanHits+' hit'+(CS.humanHits!==1?'s':'')+' recorded.</div>':'')+
         '</div>';
+    }
+    // Rank 4 human die-value input (individual die values, not just hit count)
+    function humanMainHTML(role){
+        const vals = CS.humanMainDice?.[role] || [];
+        const n = vals.length;
+        if(!n) return '';
+        const roleLabel = role==='att' ? 'ATTACKER (you) — max 3 dice' : 'DEFENDER (you) — max 2 dice';
+        const diceInputs = vals.map((v,i)=>
+            '<div style="display:inline-flex;flex-direction:column;align-items:center;gap:4px;margin:0 6px;">'+
+            '<div style="font-size:1.4em;">'+DFACES[v-1]+'</div>'+
+            '<div style="display:flex;gap:4px;">'+
+                '<button class="hs-btn" onclick="csMainDiceAdj(\''+role+'\','+i+',-1)">−</button>'+
+                '<span style="min-width:18px;text-align:center;font-weight:700;">'+v+'</span>'+
+                '<button class="hs-btn" onclick="csMainDiceAdj(\''+role+'\','+i+',1)">+</button>'+
+            '</div></div>'
+        ).join('');
+        return '<div class="human-roll-box"><h5>🎲 YOUR ROLL — Rank 4 '+roleLabel+'</h5>'+
+            '<div style="font-size:0.85em;color:var(--ink-light);margin-bottom:8px;">🎲 Roll <b>'+n+'</b> dice physically. Set each die result below (tap − / +), then tap Apply.</div>'+
+            '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">'+diceInputs+'</div>'+
+        '</div>';
+    }
+    // Rank 4 auto side: show rolled values
+    function mainAutoHTML(vals, role){
+        if(!vals.length) return '';
+        const roleLabel = role==='att' ? cName(CS.attackerColor)+' (Attacker)' : cName(CS.defenderColor)+' (Defender)';
+        const dieFaces = vals.map(v=>'<span style="font-size:1.3em;">'+DFACES[v-1]+'</span> ').join('');
+        return '<div class="dice-section"><h5>'+roleLabel+' rolled (Rank 4 — max '+(role==='att'?3:2)+' dice)</h5>'+
+            '<div>'+dieFaces+' &nbsp;<b>['+vals.join(', ')+'] sorted high→low</b></div></div>';
     }
 
     // Determine what to show per side per phase
     let attSection='', defSection='';
     if(CS.phase==='siege'){
-        attSection=CS.humanAtt?humanHTML(csDice(CS.attUnits,'siege'),'Siege Engine (attacker)'):diceHTML(CS.autoRollsAtt,CS.attackerColor.toUpperCase()+' Siege Engine rolls');
+        attSection=CS.humanAtt ? humanHTML(csDice(CS.attUnits,'siege'),'Rank 1 — Siege Engine (attacker)', 3) : diceHTML(CS.autoRollsAtt, cName(CS.attackerColor)+' Siege Engines (hit on 3+)');
         // No defender dice in siege phase
     } else if(CS.phase==='archer'){
-        if((CS.attUnits.A||0)>0) attSection=CS.humanAtt?humanHTML(csDice(CS.attUnits,'archer'),'Archers (attacker)'):diceHTML(CS.autoRollsAtt,CS.attackerColor.toUpperCase()+' Archers roll');
-        if((CS.defUnits.A||0)>0) defSection=CS.humanDef?humanHTML(csDice(CS.defUnits,'archer'),'Archers (defender)'):diceHTML(CS.autoRollsDef,CS.defenderColor.toUpperCase()+' Archers roll');
+        if((CS.attUnits.A||0)>0) attSection=CS.humanAtt ? humanHTML(csDice(CS.attUnits,'archer'),'Rank 2 — Your Archers', 5) : diceHTML(CS.autoRollsAtt, cName(CS.attackerColor)+' Archers (hit on 5+)');
+        if((CS.defUnits.A||0)>0) defSection=CS.humanDef ? humanHTML(csDice(CS.defUnits,'archer'),'Rank 2 — Your Archers', 5) : diceHTML(CS.autoRollsDef, cName(CS.defenderColor)+' Archers (hit on 5+)');
+    } else if(CS.phase==='cavalry'){
+        if((CS.attUnits.C||0)>0) attSection=CS.humanAtt ? humanHTML(csDice(CS.attUnits,'cavalry'),'Rank 3 — Your Cavalry', 3) : diceHTML(CS.autoRollsAtt, cName(CS.attackerColor)+' Cavalry (hit on 3+)');
+        if((CS.defUnits.C||0)>0) defSection=CS.humanDef ? humanHTML(csDice(CS.defUnits,'cavalry'),'Rank 3 — Your Cavalry', 3) : diceHTML(CS.autoRollsDef, cName(CS.defenderColor)+' Cavalry (hit on 3+)');
     } else if(CS.phase==='main'){
-        attSection=CS.humanAtt?humanHTML(csDice(CS.attUnits,'main'),'Main combat (attacker)'):diceHTML(CS.autoRollsAtt,CS.attackerColor.toUpperCase()+' rolls');
-        defSection=CS.humanDef?humanHTML(csDice(CS.defUnits,'main'),'Main combat (defender)'):diceHTML(CS.autoRollsDef,CS.defenderColor.toUpperCase()+' rolls');
+        attSection = CS.humanAtt ? humanMainHTML('att') : mainAutoHTML(CS.autoRollsAtt?.vals||[], 'att');
+        defSection = CS.humanDef ? humanMainHTML('def') : mainAutoHTML(CS.autoRollsDef?.vals||[], 'def');
     }
 
-    // Only block if human has dice to roll this specific phase
-    const humanDiceAtt = CS.humanAtt ? csDice(CS.attUnits, CS.phase==='siege'?'siege':CS.phase==='archer'?'archer':'main') : 0;
-    const humanDiceDef = CS.humanDef ? csDice(CS.defUnits, CS.phase==='archer'?'archer':CS.phase==='main'?'main':0) : 0;
-    const needsInput = (humanDiceAtt > 0 || humanDiceDef > 0);
-    const btnLabel=CS.phase==='main'?'APPLY HITS — NEXT ROUND':'APPLY HITS — CONTINUE';
+    // Block until human has entered all required inputs
+    // Main phase: die values are always set (init to 1, adjusted with +/−) — never block
+    let needsInput = false;
+    if(CS.phase !== 'main') {
+        const humanDiceAtt = CS.humanAtt ? (CS.phase==='siege'?csDice(CS.attUnits,'siege'):CS.phase==='archer'?(CS.attUnits.A||0):CS.phase==='cavalry'?(CS.attUnits.C||0):0) : 0;
+        const humanDiceDef = CS.humanDef ? (CS.phase==='archer'?(CS.defUnits.A||0):CS.phase==='cavalry'?(CS.defUnits.C||0):0) : 0;
+        needsInput = (humanDiceAtt > 0 || humanDiceDef > 0) && !CS.humanReady;
+    }
+    const btnLabel=CS.phase==='main'?'⚔ APPLY DICE — RESOLVE RANK 4':'APPLY HITS — CONTINUE';
     const canApply=!needsInput||CS.humanReady;
 
     const btnsHTML='<div class="combat-btn-row">'+
@@ -3972,11 +4175,38 @@ function renderCombatUI(){
         sidesHTML+explainHTML+logHTML+attSection+defSection+btnsHTML;
 }
 
+// Human uses castle re-roll: reset their hits/dice so they can roll again
+function csHumanReroll() {
+    if(!CS.castleRerollAvail || CS.castleRerollUsed) return;
+    CS.castleRerollUsed = true;
+    CS.castleRerollMsg  = '🏰 You used the castle re-roll — roll again and enter new result.';
+    // Reset human inputs for this phase
+    CS.humanHits    = 0;
+    CS.humanReady   = false;
+    if(CS.phase === 'main' && CS.humanMainDice) {
+        // Reset die values to 1 for re-entry
+        if(CS.humanMainDice.att) CS.humanMainDice.att = CS.humanMainDice.att.map(()=>1);
+        if(CS.humanMainDice.def) CS.humanMainDice.def = CS.humanMainDice.def.map(()=>1);
+    }
+    const el = document.getElementById('hs-val');
+    if(el) el.textContent = '0';
+    const btn = document.getElementById('cs-apply-btn');
+    if(btn) { btn.disabled = true; btn.textContent = 'Enter your new hit count above first →'; }
+    renderCombatUI();
+}
+// Adjust individual Rank 4 die value for human
+function csMainDiceAdj(role, idx, delta) {
+    if(!CS.humanMainDice || !CS.humanMainDice[role]) return;
+    CS.humanMainDice[role][idx] = Math.max(1, Math.min(6, (CS.humanMainDice[role][idx]||1) + delta));
+    renderCombatUI();
+}
 function csAdjHits(v){
     const phase=CS.phase;
     const isAtt=CS.humanAtt;
     const u=isAtt?CS.attUnits:CS.defUnits;
-    const maxDice=csDice(u,phase);
+    const maxDice=phase==='siege'?csDice(u,'siege'):
+                  phase==='archer'?csDice(u,'archer'):
+                  phase==='cavalry'?csDice(u,'cavalry'):0;
     CS.humanHits=Math.max(0,Math.min(maxDice,CS.humanHits+v));
     CS.humanReady=true;
     const el=document.getElementById('hs-val');
@@ -3986,47 +4216,76 @@ function csAdjHits(v){
 }
 
 function csApply(){
-    const attHits=CS.humanAtt?CS.humanHits:(CS.autoRollsAtt?CS.autoRollsAtt.filter(d=>d.hit).length:0);
-    const defHits=CS.humanDef?CS.humanHits:(CS.autoRollsDef?CS.autoRollsDef.filter(d=>d.hit).length:0);
     const ba={...CS.attUnits}, bd={...CS.defUnits};
 
     if(CS.phase==='siege'){
+        const attHits = CS.humanAtt ? CS.humanHits : (CS.autoRollsAtt?.filter(d=>d.hit).length||0);
         CS.defUnits=csRemove(CS.defUnits,attHits);
         const lost=csDescLost(csDiff(bd,CS.defUnits));
-        CS.log.push('⚙ SIEGE: '+attHits+' hits → defender loses '+lost);
-        // tell player what to remove
-        if(attHits>0) showCasualtyReport('Defender ('+CS.defenderColor.toUpperCase()+') removes from '+CS.toTerr+': '+lost);
-        const hasArch=(CS.attUnits.A||0)>0||(CS.defUnits.A||0)>0;
-        CS.phase=hasArch?'archer':'main';
+        CS.log.push('🏰 RANK 1 SIEGE: '+attHits+' hit'+(attHits!==1?'s':'')+' → Defender loses '+lost);
+        if(attHits>0) showCasualtyReport('<b>Remove from '+CS.toTerr+':</b> '+lost);
 
     } else if(CS.phase==='archer'){
+        const attHits = CS.humanAtt ? CS.humanHits : (CS.autoRollsAtt?.filter(d=>d.hit).length||0);
+        const defHits = CS.humanDef ? CS.humanHits : (CS.autoRollsDef?.filter(d=>d.hit).length||0);
         CS.defUnits=csRemove(CS.defUnits,attHits);
         CS.attUnits=csRemove(CS.attUnits,defHits);
         const attLost=csDescLost(csDiff(ba,CS.attUnits));
         const defLost=csDescLost(csDiff(bd,CS.defUnits));
-        CS.log.push('🏹 ARCHERS: Att '+attHits+'h → Def loses '+defLost+' | Def '+defHits+'h → Att loses '+attLost);
+        CS.log.push('🏹 RANK 2 ARCHERS: Att '+attHits+'h→Def loses '+defLost+' | Def '+defHits+'h→Att loses '+attLost);
         const msgs=[];
-        if(attHits>0) msgs.push('Defender ('+CS.defenderColor.toUpperCase()+') removes '+defLost+' from '+CS.toTerr);
-        if(defHits>0) msgs.push('Attacker ('+CS.attackerColor.toUpperCase()+') removes '+attLost+' from '+CS.fromTerr);
+        if(attHits>0) msgs.push('<b>Remove from '+CS.toTerr+':</b> '+defLost);
+        if(defHits>0) msgs.push('<b>Remove from '+CS.fromTerr+':</b> '+attLost);
         if(msgs.length) showCasualtyReport(msgs.join('<br>'));
-        CS.phase='main';
+
+    } else if(CS.phase==='cavalry'){
+        const attHits = CS.humanAtt ? CS.humanHits : (CS.autoRollsAtt?.filter(d=>d.hit).length||0);
+        const defHits = CS.humanDef ? CS.humanHits : (CS.autoRollsDef?.filter(d=>d.hit).length||0);
+        CS.defUnits=csRemove(CS.defUnits,attHits);
+        CS.attUnits=csRemove(CS.attUnits,defHits);
+        const attLost=csDescLost(csDiff(ba,CS.attUnits));
+        const defLost=csDescLost(csDiff(bd,CS.defUnits));
+        CS.log.push('🐴 RANK 3 CAVALRY: Att '+attHits+'h→Def loses '+defLost+' | Def '+defHits+'h→Att loses '+attLost);
+        const msgs=[];
+        if(attHits>0) msgs.push('<b>Remove from '+CS.toTerr+':</b> '+defLost);
+        if(defHits>0) msgs.push('<b>Remove from '+CS.fromTerr+':</b> '+attLost);
+        if(msgs.length) showCasualtyReport(msgs.join('<br>'));
 
     } else if(CS.phase==='main'){
+        // Rank 4: get sorted value arrays for both sides
+        const attVals = CS.humanAtt
+            ? [...(CS.humanMainDice?.att||[])].sort((a,b)=>b-a)
+            : (CS.autoRollsAtt?.vals||[]);
+        const defVals = CS.humanDef
+            ? [...(CS.humanMainDice?.def||[])].sort((a,b)=>b-a)
+            : (CS.autoRollsDef?.vals||[]);
+        const {attHits, defHits, log:cmpLog} = resolveMainComparisons(attVals, defVals);
         CS.defUnits=csRemove(CS.defUnits,attHits);
         CS.attUnits=csRemove(CS.attUnits,defHits);
         const attLost=csDescLost(csDiff(ba,CS.attUnits));
         const defLost=csDescLost(csDiff(bd,CS.defUnits));
         const rndNum=CS.log.filter(l=>l.startsWith('⚔')).length+1;
-        CS.log.push('⚔ R'+rndNum+': Att '+attHits+'h → Def loses '+defLost+' | Def '+defHits+'h → Att loses '+attLost);
+        CS.log.push('⚔ RANK 4 R'+rndNum+': Att['+attVals.join(',')+'] Def['+defVals.join(',')+']. '+cmpLog.join(' | '));
+        CS.log.push('  Att loses '+attLost+' | Def loses '+defLost);
         const msgs=[];
         if(attHits>0) msgs.push('<b>Remove from '+CS.toTerr+':</b> '+defLost);
         if(defHits>0) msgs.push('<b>Remove from '+CS.fromTerr+':</b> '+attLost);
         if(msgs.length) showCasualtyReport(msgs.join('<br>'));
     }
 
-    CS.humanHits=0; CS.humanReady=false;
+    CS.humanHits=0; CS.humanReady=false; CS.humanMainDice=null;
     const attAlive=csTotal(CS.attUnits)>0, defAlive=csTotal(CS.defUnits)>0;
-    if(!attAlive||!defAlive) CS.phase='result';
+    if(!attAlive||!defAlive) { CS.phase='result'; }
+    else {
+        if(CS.phase==='main') {
+            // Round boundary: reset castle re-roll for next round
+            CS.castleRerollUsed = false;
+            CS.castleRerollMsg  = null;
+            CS.phase = csFirstPhase();
+        } else if(CS.phase==='siege') CS.phase = ((CS.attUnits.A||0)>0||(CS.defUnits.A||0)>0)?'archer':((CS.attUnits.C||0)>0||(CS.defUnits.C||0)>0)?'cavalry':'main';
+        else if(CS.phase==='archer') CS.phase = ((CS.attUnits.C||0)>0||(CS.defUnits.C||0)>0)?'cavalry':'main';
+        else if(CS.phase==='cavalry') CS.phase = 'main';
+    }
     preparePhase();
     renderCombatUI();
 }
@@ -4389,8 +4648,17 @@ function humanIsDisputed(name) {
 }
 function humanOwnedCities() {
     const pc = S.playerColor;
-    return Object.keys(G.board).filter(n => G.board[n].owner === pc && (T[n]?.tax||0) > 0 && !isContested(n))
-        .map(n => ({ name:n, tax:T[n].tax, units:totalUnitCount(n), hasCastle:!!G.board[n].castle }));
+    return Object.keys(G.board).filter(n => {
+        if (G.board[n].owner !== pc) return false;
+        if ((T[n]?.tax||0) === 0) return false;
+        // Can fortify contested cities ONLY as the defender — not as the attacker
+        if (isContested(n) && !isDefenderOf(pc, n)) return false;
+        return true;
+    }).map(n => ({
+        name:n, tax:T[n].tax, units:totalUnitCount(n),
+        hasCastle:!!G.board[n].castle,
+        isContested: isContested(n)   // flag for UI labelling
+    }));
 }
 function humanMoveFromOpts() {
     const pc = S.playerColor;
@@ -4629,9 +4897,8 @@ function hfSpendApply(idx) {
     // Constantinople shield: bonus 4 Footmen to place alongside Siege Engine
     const hasCon = (cart.S>0) && CITY_SHIELDS['Constantinople']?.trigger==='spend' && G.shields?.['Constantinople']===pc;
     const toPlace = {
-        F: (cart.F||0) + (hasCon ? 4 : 0),
-        A: cart.A||0, C: cart.C||0, S: cart.S||0, Castle: cart.Castle||0
-        // CrownCard has no physical placement
+        // Constantinople bonus +4F NOT included here — auto-applied after siege engine placement
+        F: cart.F||0, A: cart.A||0, C: cart.C||0, S: cart.S||0, Castle: cart.Castle||0
     };
     step.toPlace     = {...toPlace};       // original totals
     step.remaining   = {...toPlace};       // countdown as player allocates
@@ -4695,7 +4962,19 @@ function hfPlaceConfirm(idx) {
     step.boardReminder = placeSummary
         ? `Apply on physical board: ${placeSummary}.`
         : null;
-    if (step.conShield) step.boardReminder = (step.boardReminder||'') + `<br>🛡 CONSTANTINOPLE: +4 Footmen included (placed with Siege Engine).`;
+    // Constantinople shield: auto-place +4F in the territory where the siege engine was placed
+    if (step.conShield) {
+        const siegeTerr = Object.entries(step.placements).find(([,u]) => (u.S||0) > 0)?.[0];
+        if (siegeTerr && G.board[siegeTerr]) {
+            const _conBefore = totalUnitCount(siegeTerr);
+            G.board[siegeTerr].units.F = (G.board[siegeTerr].units.F||0) + 4;
+            cLog(S.playerColor, `🛡 CONSTANTINOPLE SHIELD: +4 Footmen auto-placed at ${siegeTerr} with the Siege Engine (${_conBefore}→${totalUnitCount(siegeTerr)} total)`);
+            step.boardReminder = (step.boardReminder||'') + `<br>🛡 CONSTANTINOPLE SHIELD: +4 Footmen automatically added to <b>${siegeTerr}</b> (where your Siege Engine was placed).`;
+        } else {
+            // Siege engine not yet placed (shouldn't happen, but fallback: remind manually)
+            step.boardReminder = (step.boardReminder||'') + `<br>🛡 CONSTANTINOPLE SHIELD: Place +4 Footmen with your Siege Engine.`;
+        }
+    }
     if (step.kievShield) step.boardReminder = (step.boardReminder||'') + `<br>🛡 KIEV: Units may be placed in non-city supply territories.`;
     render();
     renderHumanTurn();
@@ -4756,7 +5035,10 @@ function hfSelect(idx, choice) {
         const count = G.board[city]?.castle ? 4 : 3;
         const _fBefore = totalUnitCount(city);
         G.board[city].units.F = (G.board[city].units.F||0) + count;
-        cLog(pc, `${cName(pc)} FORTIFY ${city}: +${count} Footm${count>1?'en':'an'} (${_fBefore}→${totalUnitCount(city)} total)`);
+        const _contestedNote = isContested(city)
+            ? (isDefenderOf(pc, city) ? ' [CONTESTED — you are DEFENDER]' : ' [CONTESTED — you are ATTACKER ⚠]')
+            : '';
+        cLog(pc, `${cName(pc)} FORTIFY ${city}${_contestedNote}: +${count} Footm${count>1?'en':'an'} (${_fBefore}→${totalUnitCount(city)} total)`);
         step.state='done';
         step.summary=`Fortified ${city}: +${count} Footmen (now ${totalUnitCount(city)} total).`;
         step.boardReminder=`Place <b>${count} Footmen</b> in <b>${city}</b> on your physical board.`;
@@ -5036,8 +5318,11 @@ function renderFlowStepBody(step, idx) {
                 <button class="btn-retreat" onclick="hfSkip(${idx})">Skip fortify (no cities available)</button>`;
             const btns = cities.map(c => {
                 const count = c.hasCastle ? 4 : 3;
+                const contestedBadge = c.isContested
+                    ? '<span style="font-size:0.72em;background:rgba(139,26,26,0.1);color:#8b1a1a;border-radius:4px;padding:1px 6px;margin-left:4px;">⚔ CONTESTED — YOU DEFEND</span>'
+                    : '';
                 return `<div class="hcp-card" onclick="hfSelect(${idx},'${c.name}')">
-                    <b>${terrLabel(c.name)}${c.hasCastle?' 🏰':''}</b>
+                    <b>${terrLabel(c.name)}${c.hasCastle?' 🏰':''}${contestedBadge}</b>
                     <div class="hcp-count">+${count} Footmen · currently ${c.units} units → will have ${c.units+count}</div>
                 </div>`;
             }).join('');
@@ -5742,7 +6027,7 @@ function renderCombatPhase() {
             <div class="cp-battle-hdr">
                 <div>
                     <div class="cp-battle-title">⚔ ${b.to}${G.board[b.to]?.castle?' 🏰':''}</div>
-                    <div class="cp-battle-sub">${colorLabel(b.color)} vs ${colorLabel(b._defColor||defColor)}${b._merged?' <span style="font-size:0.8em;opacity:0.7;">(combined attack)</span>':''}</div>
+                    <div class="cp-battle-sub">⚔ ATT: ${colorLabel(b.color)}${b.color===S.playerColor?' (YOU)':''} &nbsp;🛡 DEF: ${colorLabel(b._defColor||defColor)}${(b._defColor||defColor)===S.playerColor?' (YOU)':''}${b._merged?' <span style="font-size:0.8em;opacity:0.7;">(combined attack)</span>':''}</div>
                 </div>
                 ${badge}
             </div>
@@ -5883,17 +6168,17 @@ function resolveAutoBattle(b) {
         }
     }
 
-    // ── Siege pre-fire ──
+    // ── Rank 1: Siege (attacker only, vs castle, hit on 3+) ──
     const aSiege = aUnits.S;
     const targetHasCastle = G.board[b.to]?.castle || false;
     if (aSiege > 0 && targetHasCastle) {
-        const rolls = rollDice(aSiege*2, 4);
+        const rolls = rollDice(aSiege*2, 3);
         const hits = rolls.filter(r=>r.hit).length;
         const dBefore = snapUnits(dUnits);
         removeCasualties(dUnits, hits);
         const lost = unitDiffStr(dBefore, dUnits);
         htmlLog.push(
-            `<div style="margin-bottom:4px"><b>Siege pre-fire</b> (${aSiege} engine${aSiege>1?'s':''} × 2 dice vs castle):</div>`+
+            `<div style="margin-bottom:4px"><b>Rank 1 — Siege</b> (${aSiege} engine${aSiege>1?'s':''} × 2 dice, hit on 3+):</div>`+
             diceRowHTML(rolls)+
             (hits>0
                 ? `<div class="board-instruction"><b>Remove from ${b.to}:</b> ${lost}<br><b>Defender ${defColorName} now has:</b> ${unitRemainStr(dUnits)}</div>`
@@ -5903,11 +6188,11 @@ function resolveAutoBattle(b) {
         htmlLog.push(`<div style="color:#888;font-size:0.8em">Siege engines at ${b.to} — no castle, no pre-fire.</div>`);
     }
 
-    // ── Archer volley ──
+    // ── Rank 2: Archers (both sides, hit on 5+) ──
     const aArch = aUnits.A, dArch = dUnits.A;
     if (aArch+dArch > 0) {
-        const aRolls = rollDice(aArch, 4);
-        const dRolls = rollDice(dArch, 4);
+        const aRolls = rollDice(aArch, 5);
+        const dRolls = rollDice(dArch, 5);
         const aHits = aRolls.filter(r=>r.hit).length;
         const dHits = dRolls.filter(r=>r.hit).length;
         const aBefore = snapUnits(aUnits), dBefore = snapUnits(dUnits);
@@ -5915,7 +6200,7 @@ function resolveAutoBattle(b) {
         removeCasualties(aUnits, dHits);
         const attLost = unitDiffStr(aBefore, aUnits);
         const defLost = unitDiffStr(dBefore, dUnits);
-        let html = `<div style="margin-bottom:4px"><b>Archer volley</b></div>`;
+        let html = `<div style="margin-bottom:4px"><b>Rank 2 — Archers</b> (hit on 5+)</div>`;
         if (aArch > 0) html += `<div style="font-size:0.8em;color:#555">${attColorName} (${aArch} archer${aArch>1?'s':''})</div>`+diceRowHTML(aRolls);
         if (dArch > 0) html += `<div style="font-size:0.8em;color:#555">${defColorName} (${dArch} archer${dArch>1?'s':''})</div>`+diceRowHTML(dRolls);
         const instructions = [];
@@ -5927,14 +6212,11 @@ function resolveAutoBattle(b) {
         htmlLog.push(html);
     }
 
-    // ── Main combat rounds ──
-    let rounds = 0;
-    while (total(aUnits) > 0 && total(dUnits) > 0 && rounds < 10) {
-        rounds++;
-        const aDice = aUnits.C*2 + aUnits.F + aUnits.A + aUnits.S;
-        const dDice = dUnits.C*2 + dUnits.F + dUnits.A + dUnits.S;
-        const aRolls = rollDice(aDice);
-        const dRolls = rollDice(dDice);
+    // ── Rank 3: Cavalry (both sides, hit on 3+) ──
+    const aCav = aUnits.C, dCav = dUnits.C;
+    if (aCav+dCav > 0) {
+        const aRolls = rollDice(aCav, 3);
+        const dRolls = rollDice(dCav, 3);
         const aHits = aRolls.filter(r=>r.hit).length;
         const dHits = dRolls.filter(r=>r.hit).length;
         const aBefore = snapUnits(aUnits), dBefore = snapUnits(dUnits);
@@ -5942,16 +6224,98 @@ function resolveAutoBattle(b) {
         removeCasualties(aUnits, dHits);
         const attLost = unitDiffStr(aBefore, aUnits);
         const defLost = unitDiffStr(dBefore, dUnits);
-
-        let html = `<div style="margin-bottom:3px"><b>Round ${rounds}</b></div>`;
-        html += `<div style="font-size:0.8em;color:#555">${attColorName} (${aDice} dice)</div>`+diceRowHTML(aRolls);
-        html += `<div style="font-size:0.8em;color:#555">${defColorName} (${dDice} dice)</div>`+diceRowHTML(dRolls);
+        let html = `<div style="margin-bottom:4px"><b>Rank 3 — Cavalry</b> (hit on 3+)</div>`;
+        if (aCav>0) html += `<div style="font-size:0.8em;color:#555">${attColorName} Cavalry (${aCav} dice)</div>`+diceRowHTML(aRolls);
+        if (dCav>0) html += `<div style="font-size:0.8em;color:#555">${defColorName} Cavalry (${dCav} dice)</div>`+diceRowHTML(dRolls);
         const instructions = [];
-        if (aHits > 0) instructions.push(`<b>Remove from ${b.to}:</b> ${defLost}`);
-        if (dHits > 0) instructions.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${attLost}`);
-        if (!instructions.length) instructions.push('No casualties this round.');
-        html += `<div class="board-instruction">${instructions.join('<br>')}</div>`;
+        if (aHits>0) instructions.push(`<b>Remove from ${b.to}:</b> ${defLost}`);
+        if (dHits>0) instructions.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${attLost}`);
+        if (instructions.length) html += `<div class="board-instruction">${instructions.join('<br>')}</div>`;
+        else html += `<div style="color:#888;font-size:0.8em">No casualties.</div>`;
         htmlLog.push(html);
+    }
+
+    // ── Rank 4: Main combat rounds (comparison mechanic — att≤3, def≤2) ──
+    let rounds = 0;
+    while (total(aUnits) > 0 && total(dUnits) > 0 && rounds < 12) {
+        rounds++;
+        // Each round: roll all 4 ranks, then loop
+        // Rank 1 siege (if applicable)
+        if (targetHasCastle && aUnits.S>0) {
+            const sr = rollDice(aUnits.S*2, 3);
+            const sh = sr.filter(r=>r.hit).length;
+            const dBef = snapUnits(dUnits);
+            removeCasualties(dUnits, sh);
+            let shtml = `<div style="margin-bottom:3px"><b>Round ${rounds} — Rank 1 Siege</b></div>`+diceRowHTML(sr);
+            if (sh>0) shtml += `<div class="board-instruction"><b>Remove from ${b.to}:</b> ${unitDiffStr(dBef,dUnits)}</div>`;
+            htmlLog.push(shtml);
+            if (!total(dUnits)) break;
+        }
+        // Rank 2 archers
+        if ((aUnits.A||0)+(dUnits.A||0)>0) {
+            const ar=rollDice(aUnits.A,5), dr=rollDice(dUnits.A,5);
+            const ah=ar.filter(r=>r.hit).length, dh=dr.filter(r=>r.hit).length;
+            const aBef=snapUnits(aUnits), dBef=snapUnits(dUnits);
+            removeCasualties(dUnits,ah); removeCasualties(aUnits,dh);
+            let arHtml=`<div style="margin-bottom:3px"><b>Round ${rounds} — Rank 2 Archers</b> (hit 5+)</div>`;
+            if(aUnits.A>0)arHtml+=`<div style='font-size:0.8em;color:#555'>${attColorName} Archers</div>`+diceRowHTML(ar);
+            if(dCav>0||dUnits.A>0)arHtml+=`<div style='font-size:0.8em;color:#555'>${defColorName} Archers</div>`+diceRowHTML(dr);
+            const ins=[];
+            if(ah>0)ins.push(`<b>Remove from ${b.to}:</b> ${unitDiffStr(dBef,dUnits)}`);
+            if(dh>0)ins.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${unitDiffStr(aBef,aUnits)}`);
+            if(ins.length)arHtml+=`<div class="board-instruction">${ins.join('<br>')}</div>`;
+            htmlLog.push(arHtml);
+            if(!total(aUnits)||!total(dUnits))break;
+        }
+        // Rank 3 cavalry
+        if ((aUnits.C||0)+(dUnits.C||0)>0) {
+            const ar=rollDice(aUnits.C,3), dr=rollDice(dUnits.C,3);
+            const ah=ar.filter(r=>r.hit).length, dh=dr.filter(r=>r.hit).length;
+            const aBef=snapUnits(aUnits), dBef=snapUnits(dUnits);
+            removeCasualties(dUnits,ah); removeCasualties(aUnits,dh);
+            let cHtml=`<div style="margin-bottom:3px"><b>Round ${rounds} — Rank 3 Cavalry</b> (hit 3+)</div>`;
+            if(aUnits.C>0)cHtml+=`<div style='font-size:0.8em;color:#555'>${attColorName} Cavalry</div>`+diceRowHTML(ar);
+            if(dUnits.C>0)cHtml+=`<div style='font-size:0.8em;color:#555'>${defColorName} Cavalry</div>`+diceRowHTML(dr);
+            const ins=[];
+            if(ah>0)ins.push(`<b>Remove from ${b.to}:</b> ${unitDiffStr(dBef,dUnits)}`);
+            if(dh>0)ins.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${unitDiffStr(aBef,aUnits)}`);
+            if(ins.length)cHtml+=`<div class="board-instruction">${ins.join('<br>')}</div>`;
+            htmlLog.push(cHtml);
+            if(!total(aUnits)||!total(dUnits))break;
+        }
+        // Rank 4 main — comparison mechanic
+        const attN4 = Math.min(total(aUnits), 3);
+        const defN4 = Math.min(total(dUnits), 2);
+        const aVals = Array.from({length:attN4}, ()=>Math.ceil(Math.random()*6)).sort((a,b)=>b-a);
+        const dVals = Array.from({length:defN4}, ()=>Math.ceil(Math.random()*6)).sort((a,b)=>b-a);
+        // Run comparison
+        let aHits=0, dHits=0;
+        const cmpPairs = [];
+        // Cmp1
+        if(aVals.length||dVals.length) {
+            const a1=aVals[0]??null, d1=dVals[0]??null;
+            if(a1!==null&&d1!==null){if(a1>d1){aHits++;cmpPairs.push(`${a1}>${d1}→Att`);}else{dHits++;cmpPairs.push(`${a1<=d1?'Tie/Def':a1+'<'+d1}→Def`);}}
+            else if(a1!==null){aHits++;cmpPairs.push(`Att only→Att`);}
+            else{dHits++;cmpPairs.push(`Def only→Def`);}
+        }
+        // Cmp2
+        const a2=aVals[1]??null, d2=dVals[1]??null;
+        if(a2!==null||d2!==null){
+            if(a2!==null&&d2!==null){if(a2>d2){aHits++;cmpPairs.push(`${a2}>${d2}→Att`);}else{dHits++;cmpPairs.push(`→Def`);}}
+            else if(a2!==null){aHits++;cmpPairs.push(`Att→Att`);}
+            else{dHits++;cmpPairs.push(`Def→Def`);}
+        }
+        const aBef4=snapUnits(aUnits), dBef4=snapUnits(dUnits);
+        removeCasualties(dUnits,aHits); removeCasualties(aUnits,dHits);
+        let mHtml=`<div style="margin-bottom:3px"><b>Round ${rounds} — Rank 4 Main</b> (Att≤3 dice, Def≤2 dice, comparison)</div>`;
+        mHtml+=`<div style="font-size:0.85em">Att[${aVals.join(',')}] vs Def[${dVals.join(',')}]: ${cmpPairs.join(' | ')}</div>`;
+        const ins4=[];
+        if(aHits>0)ins4.push(`<b>Remove from ${b.to}:</b> ${unitDiffStr(dBef4,dUnits)}`);
+        if(dHits>0)ins4.push(`<b>Remove from ${b.from==='__editor__'?attColorName:b.from}:</b> ${unitDiffStr(aBef4,aUnits)}`);
+        if(!ins4.length)ins4.push('No casualties.');
+        mHtml+=`<div class="board-instruction">${ins4.join('<br>')}</div>`;
+        mHtml+=`<div style="font-size:0.8em;color:#555">After round ${rounds}: Att ${unitRemainStr(aUnits)} | Def ${unitRemainStr(dUnits)}</div>`;
+        htmlLog.push(mHtml);
     }
 
     // ── Final board state ──
