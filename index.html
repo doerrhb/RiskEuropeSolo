@@ -2160,27 +2160,10 @@ function applyShieldBonus(city, color, context) {
             addLog(`🛡 Constantinople shield: ${cName(color)} receives 4 free Footmen at ${cityLabel(siegeTerr)}.`);
         }
     } else if (city === 'Kiev' && context === 'spend') {
-        // Automa: place 2 extra Footmen in highest-unit non-city territory connected to Rusland (Kiev)
-        if (G.board[_terr]?.owner !== color) return;
-        const visited = new Set([_terr]);
-        const queue = [_terr];
-        let bestNonCity = null, bestCount = -1;
-        while (queue.length) {
-            const cur = queue.shift();
-            for (const adj of (T[cur]?.adj || [])) {
-                if (!visited.has(adj) && G.board[adj]?.owner === color) {
-                    visited.add(adj); queue.push(adj);
-                    if (T[adj].tax === 0) {
-                        const cnt = totalUnitCount(adj);
-                        if (cnt > bestCount) { bestCount = cnt; bestNonCity = adj; }
-                    }
-                }
-            }
-        }
-        if (bestNonCity) {
-            G.board[bestNonCity].units.F = (G.board[bestNonCity].units.F||0) + 2;
-            addLog(`🛡 Kiev shield: ${cName(color)} places 2 extra Footmen at ${bestNonCity} (supply line).`);
-        }
+        // Kiev shield only extends WHERE the automaton can recruit (to supply-line non-city territories).
+        // It does NOT grant extra free units. The automaton already places in its capital city,
+        // which is valid — so no special action needed here. The reminder is shown in generateSteps.
+        // (No free footmen are added.)
     } else if (city === 'Stockholm' && context === 'battle_win') {
         // 4 free coins
         G.coins[color] = (G.coins[color]||0) + 4;
@@ -2245,6 +2228,21 @@ function launchGame() {
     initBoard();
     prepareRound(true);
     G._initialDeal = false;
+    // Log initial board counts (oldest entries — appear below GAME STARTED in log)
+    [...G.seating].reverse().forEach(c => {
+        const _iterrs = Object.keys(G.board).filter(n => G.board[n].owner === c && T[n]);
+        const _itotal = _iterrs.reduce((s,n)=>s+totalUnitCount(n),0);
+        const _istr = _iterrs
+            .sort((a,b)=>(T[b]?.tax||0)-(T[a]?.tax||0)||a.localeCompare(b))
+            .map(n=>{
+                const u=G.board[n].units, p=[];
+                if(u.S>0)p.push(u.S+'S');if(u.C>0)p.push(u.C+'C');
+                if(u.A>0)p.push(u.A+'A');if(u.F>0)p.push(u.F+'F');
+                return n+(G.board[n].castle?'🏰':'')+':'+(p.join('+')||'0');
+            }).join('  ');
+        addLog(`${colorEmoji(c)} ${colorLabel(c)}: ${_iterrs.length} territories, ${_itotal} units — ${_istr}`);
+    });
+    addLog('=== INITIAL BOARD STATE ===');
     addLog('=== GAME STARTED — Round 1 begins. Good luck! ===');
     document.getElementById('setup-screen').style.display = 'none';
     document.getElementById('game-screen').style.display  = 'block';
@@ -3288,6 +3286,14 @@ function openBoardEditor(focusColor) {
 
 function closeBoardEditor() {
     document.getElementById('board-overlay').classList.remove('open');
+    // Re-evaluate the current turn after board edits so the step list reflects the new board state
+    const _beCurColor = activeColor ? activeColor() : null;
+    const _beIsHuman = S.playerColor && _beCurColor === S.playerColor;
+    if (!_beIsHuman && G.revealed && _beCurColor) {
+        // AI turn with card revealed — regenerate steps based on updated board state
+        const _beCard = G.hand[_beCurColor]?.[G.step-1];
+        if (_beCard) regenerateSteps(_beCard, _beCurColor);
+    }
     render();
     // Auto-check the board step if opened from human turn
     const isHumanTurn = S.playerColor && activeColor && activeColor() === S.playerColor;
@@ -3296,8 +3302,8 @@ function closeBoardEditor() {
         G.humanTurnChecks = G.humanTurnChecks || new Set();
         G.humanTurnChecks.add(G._htBoardStep);
         G._htBoardStep = undefined;
-        renderHumanTurn();
     }
+    if (isHumanTurn) renderHumanTurn();
 }
 
 function beUnitStr(u) {
@@ -4942,6 +4948,7 @@ function humanCastleCost() {
 function humanCrownCardCost() {
     return 10; // Crown Cards always cost 10 coins; not tied to castle supply
 }
+const UNIT_PLACE_EMOJI = { F:'⚔️', A:'🏹', C:'🐴', S:'💣', Castle:'🏰' };
 const UNIT_NAMES = { F:'Footman', A:'Archer', C:'Cavalry', S:'Siege Engine', Castle:'Castle', CrownCard:'Crown Card' };
 const UNIT_PLURAL= { F:'Footmen', A:'Archers', C:'Cavalry', S:'Siege Engines', Castle:'Castles', CrownCard:'Crown Cards' };
 const MIN_SPEND  = 1; // No minimum for humans — SPEND_TABLE minimum is automa-only
@@ -5362,7 +5369,7 @@ function renderFlowStepBody(step, idx) {
                         const idxStr = idx;
                         const terrEsc = terr.replace(/'/g,"\'");
                         return `<div style="display:flex;align-items:center;gap:4px;margin-right:8px;">
-                            <span style="font-size:0.72em;color:var(--ink-light);min-width:18px;text-align:right;">${UNIT_NAMES[k].charAt(0)}</span>
+                            <span style="font-size:1em;min-width:22px;text-align:center;" title="${UNIT_NAMES[k]}">${UNIT_PLACE_EMOJI[k]||UNIT_NAMES[k].charAt(0)}</span>
                             <button onclick="hfPlaceAdjust(${idxStr},'${terrEsc}','${k}',-1)" ${canSub?'':'disabled'} style="width:24px;height:24px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:0.9em;cursor:pointer;color:${canSub?'#8b1a1a':'#ccc'}">−</button>
                             <span style="width:18px;text-align:center;font-size:0.88em;font-weight:700;">${qty}</span>
                             <button onclick="hfPlaceAdjust(${idxStr},'${terrEsc}','${k}',1)" ${canAdd?'':'disabled'} style="width:24px;height:24px;border-radius:50%;border:1px solid #ccc;background:#fff;font-size:0.9em;cursor:pointer;color:${canAdd?'#1a7a3c':'#ccc'}">+</button>
@@ -5893,8 +5900,11 @@ function openTerrEdit(name) {
 }
 
 function closeTerrEdit() {
-    // If a second (attacking) army was set up, queue it as a pending battle
+    // If a second (attacking) army was set up AND has units, set up a pending combat
+    // but frame it as a state correction — the user is fixing what's on the board.
     if (TE.attColor && unitTotal(TE.attUnits) > 0) {
+        // Store the attacking army INTO the board as a contested state.
+        // We record it as a pending combat for the Combat Phase, exactly as if it were queued normally.
         if (!G.roundCombats) G.roundCombats = [];
         // Remove any previous editor-queued battle for the same territory + attacker
         G.roundCombats = G.roundCombats.filter(
@@ -5909,11 +5919,20 @@ function closeTerrEdit() {
             isEnemy:     true,
             _fromEditor: true
         });
-        addLog(`⚔ Battle queued: ${cAttacks(TE.attColor)} ${TE.name} (${G.board[TE.name]?.owner}) — resolve in Combat Phase.`);
+        addLog(`⚔ State corrected: ${cAttacks(TE.attColor)} ${TE.name} (${G.board[TE.name]?.owner}) — battle queued for Combat Phase.`);
     }
     document.getElementById('terr-edit-overlay').classList.remove('open');
     TE = { name:null, attColor:null, attUnits:{F:0,A:0,C:0,S:0} };
+    // Re-evaluate current turn state after the board correction
+    const _teCurColor = activeColor ? activeColor() : null;
+    const _teIsHuman = S.playerColor && _teCurColor === S.playerColor;
+    if (!_teIsHuman && G.revealed && _teCurColor) {
+        const _teCard = G.hand[_teCurColor]?.[G.step-1];
+        if (_teCard) regenerateSteps(_teCard, _teCurColor);
+    }
     renderBEFull(G.board);
+    render();
+    if (_teIsHuman) renderHumanTurn();
 }
 
 function renderTerrEdit() {
@@ -5966,18 +5985,24 @@ function renderTerrEdit() {
     }
 
     // ── Defender panel ──────────────────────────────────────────────
-    const defHex   = COLOR_HEX[defColor] || '#aaa';
+    const defHex   = defColor === 'neutral' ? '#888' : (COLOR_HEX[defColor] || '#aaa');
     const defLight = ['orange','green','blue'].includes(defColor);
     const defTxt   = defLight ? '#000' : '#fff';
     const defTotal = unitTotal(b.units);
+    const isNeutral = defColor === 'neutral';
     const defPanel = `
         <div class="te-section" style="border:2px solid ${defHex};border-radius:7px;margin-bottom:10px;">
             <div style="background:${defHex};color:${defTxt};padding:5px 10px;border-radius:5px 5px 0 0;
                 font-family:Cinzel,serif;font-size:0.82em;font-weight:700;margin-bottom:6px;">
-                ${hasAtt ? 'DEFENDER — ' : ''}${defColor.toUpperCase()}${defColor===S.playerColor?' (YOU)':''}&nbsp;
-                <span style="font-weight:400">(${defTotal} units)</span>
+                ${hasAtt ? 'DEFENDER — ' : ''}${defColor.toUpperCase()}${defColor===S.playerColor?' (YOU)':''}${isNeutral?' — unowned':''}
+                ${!isNeutral ? `&nbsp;<span style="font-weight:400">(${defTotal} units)</span>` : ''}
             </div>
-            <div style="padding:0 4px;">${makeUnitRows(b.units,'te-def-','teAdjDef')}</div>
+            <div style="padding:0 4px;">
+                ${isNeutral
+                    ? '<div style="color:#888;font-size:0.82em;padding:8px 4px;">Neutral territory — no units. Select a player colour above to assign ownership.</div>'
+                    : makeUnitRows(b.units,'te-def-','teAdjDef')
+                }
+            </div>
         </div>`;
 
     // ── Attacker panel (only when a second color is selected) ───────
@@ -5997,7 +6022,7 @@ function renderTerrEdit() {
             <div style="padding:0 4px;">${makeUnitRows(TE.attUnits,'te-att-','teAdjAtt')}</div>
         </div>
         <div style="font-size:0.78em;color:var(--ink-light);margin-bottom:8px;padding:0 2px;">
-            ⚔ Battle will be queued for the Combat Phase when you save.
+            ⚔ Two colours set — this territory has a contested state. When saved, the battle will be queued for the Combat Phase. The main interface will re-evaluate.
         </div>`;
     }
 
@@ -6011,7 +6036,7 @@ function renderTerrEdit() {
             <div class="te-label">Territory: <b>${name}</b> &nbsp;<span style="font-size:0.8em;color:var(--ink-light);">${tax}</span></div>
         </div>
         <div class="te-section">
-            <div class="te-label">${hasAtt ? 'Click a colour to set attacker / defender' : 'Owner — click another colour to add an attacker'}</div>
+            <div class="te-label">${hasAtt ? 'Click attacker colour again to remove them' : 'Owner — click another colour to add an attacker (contested state)'}</div>
             <div class="te-owner-row">${ownerBtns}</div>
         </div>
         ${defPanel}
@@ -6024,7 +6049,7 @@ function renderTerrEdit() {
             ${castleNote}
         </div>
         <button class="te-save-btn" onclick="closeTerrEdit()">
-            ${hasAtt && unitTotal(TE.attUnits)>0 ? '⚔ Save & Queue Battle' : '✓ Done — Save Changes'}
+            ${hasAtt && unitTotal(TE.attUnits)>0 ? '⚔ Save State & Queue Battle' : '✓ Save Board Correction'}
         </button>
     `;
 }
@@ -6058,6 +6083,7 @@ function teSetOwner(color) {
 // ── Adjust DEFENDER units ──────────────────────────────────────────
 function teAdjDef(k, v) {
     if (!G.board[TE.name]) return;
+    if (G.board[TE.name].owner === 'neutral') return; // neutral territories have no units
     G.board[TE.name].units[k] = Math.max(0, (G.board[TE.name].units[k]||0) + v);
     const el = document.getElementById('te-def-'+k);
     if (el) el.textContent = G.board[TE.name].units[k];
@@ -6073,7 +6099,7 @@ function teAdjAtt(k, v) {
     if (tot) tot.textContent = '('+unitTotal(TE.attUnits)+' units)';
     // Refresh save button label
     const btn = document.querySelector('.te-save-btn');
-    if (btn) btn.textContent = unitTotal(TE.attUnits)>0 ? '⚔ Save & Queue Battle' : '✓ Done — Save Changes';
+    if (btn) btn.textContent = unitTotal(TE.attUnits)>0 ? '⚔ Save State & Queue Battle' : '✓ Save Board Correction';
 }
 
 // legacy alias kept so any leftover onclick="teAdjUnit(...)" still works
