@@ -136,7 +136,7 @@
         .action-card.revealed  { border-color: var(--accent); }
         .action-card.unrevealed{ color: #bbb; border-color: #ccc; }
         .card-sub { font-size: 0.58em; color: var(--ink-light); font-family: 'Crimson Text',serif; font-weight: 400; margin-top: 4px; }
-        .human-banner { border: 3px dashed var(--player-color); border-radius: 10px; padding: 22px 16px;
+        .human-banner { border: 3px solid var(--player-color); border-radius: 10px; padding: 22px 16px;
                         text-align: center; background: rgba(26,95,168,0.06); margin-bottom: 12px; }
         .human-banner h2 { font-family: 'Cinzel',serif; color: var(--player-color); margin: 0 0 6px; font-size: 1.2em; }
         .human-banner p { margin: 0; color: var(--ink-light); font-size: 0.9em; line-height: 1.55; }
@@ -1142,6 +1142,21 @@ function isContested(name) {
     return (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
 }
 // Is `color` the ATTACKER in a pending battle at `name`?
+// Award coin bonus to `color` for capturing city `name` for the first time ever.
+// Rule: only fires if the city has never been captured before in this game.
+// Returns coins awarded (0 if city already captured before).
+function awardFirstCapture(city, color) {
+    if (!G.capturedCities) G.capturedCities = new Set();
+    if (G.capturedCities.has(city)) return 0; // already captured before — no bonus
+    const taxVal = T[city]?.tax || 0;
+    if (taxVal <= 0) return 0; // not a city
+    G.capturedCities.add(city);
+    if (!G.coins) G.coins = {};
+    const before = G.coins[color] || 0;
+    G.coins[color] = before + taxVal;
+    cLog(color, `💰 FIRST CAPTURE BONUS: ${cName(color)} gains ${taxVal} coins for capturing ${cityLabel(city)} for the first time (${before}→${G.coins[color]})`);
+    return taxVal;
+}
 function isAttackerOf(color, name) {
     return (G.roundCombats||[]).some(b => b.to === name && !b._resolved && b.color === color);
 }
@@ -1590,6 +1605,8 @@ function applyNonCombatMove(mv) {
         } else {
             cLog(mv.color, `${cName(mv.color)} CAPTURES ${mv.to}. ${mv.from}→${mv.to}`);
         }
+        // First-capture coin bonus (neutral city only — enemy cities handled in combat paths)
+        awardFirstCapture(mv.to, mv.color);
         // Assign shield token for new city owner
         const sk = shieldKeyForTerr(mv.to);
         if (sk) {
@@ -2182,7 +2199,9 @@ function launchGame() {
         humanTurnChecks:new Set(), humanBoardUpdated:false, humanSpendCart:{F:0,A:0,C:0,S:0,Castle:0},
         humanDeck:[], humanDiscard:[], humanCard:null, humanVariant:null, humanFlow:[], _humanCardPending:null, _humanVariantPending:null,
         roundCombats:[],
-        logHistory:[]
+        logHistory:[],
+        // Track which cities have been captured at least once (first capture awards tax coins)
+        capturedCities: new Set()
     };
     autos.forEach(c => { G.decks[c]=[]; G.hand[c]=[]; });
     G.humanDeck = shuffle([...DECK_BASE]);
@@ -2778,34 +2797,58 @@ function generateSteps(card, color, coins) {
     }
 
     if (card === "FORTIFY / EXPAND OR MANEUVER") {
-        const fortDec = decideFortify(color);
-        const fortTerr = fortDec ? fortDec.territory : '(city with fewest units)';
-        const fortCount = fortDec ? fortDec.count : 3;
-        const currCount = fortDec ? totalUnitCount(fortDec.territory) : '?';
-        // Store fortify as a proper move entry
-        if (fortDec) G.pendingMoves.push({ type:'fortify', territory:fortDec.territory, count:fortDec.count });
-        G.pendingFortify = fortDec; // legacy
-        steps.push(`<b>FORTIFY:</b> Add <b>+${fortCount} Footmen</b> to <b>${fortTerr}</b> (currently ${currCount} units${fortDec&&G.board[fortTerr]?.castle?' — has castle':''}). Take them from the supply.
-            <span class="rule-note">${fortDec&&fortDec.hasCastle?'+4 Footmen (castle bonus).':'+3 Footmen to a city.'}</span>`);
-        steps.push(null); // ── section divider ──
+        // ── Decide expand FIRST so we know where the AI is going ──
+        const preExpandDec = decideExpand(color);
+        const expandDestIsCity = preExpandDec && ((T[preExpandDec.to]?.tax||0) > 0 || G.board[preExpandDec.to]?.castle);
 
-        // ── CRITICAL: recompute expand/position/maneuver AFTER applying fortify ──
-        // The fortify hasn't hit G.board yet (it applies in advanceTurn), so we
-        // temporarily apply it now, recompute, then undo.
-        // This ensures the expand picks up the newly fortified army if it's now largest.
-        if (fortDec && G.board[fortDec.territory]) {
+        // Prefer fortifying the expansion destination (city/castle) AFTER capturing it.
+        // Fall back to normal decideFortify if no city/castle destination available.
+        let fortDec;
+        let fortifyAfterExpand = false;
+        if (expandDestIsCity) {
+            // The dest may not be owned by us yet (we're capturing it), so build fortDec manually.
+            // After capture, it will qualify: cities get +3, castle territories get +4.
+            const destHasCastle = !!(G.board[preExpandDec.to]?.castle);
+            fortDec = { territory: preExpandDec.to, count: destHasCastle ? 4 : 3, hasCastle: destHasCastle, _afterCapture: true };
+            fortifyAfterExpand = true;
+        } else {
+            // Non-city/castle destination (or no expand) — fortify an existing owned city first
+            fortDec = decideFortify(color);
+            fortifyAfterExpand = false;
+        }
+
+        const fortTerr  = fortDec ? fortDec.territory : '(city with fewest units)';
+        const fortCount = fortDec ? fortDec.count : 3;
+        const currCount = fortDec && !fortDec._afterCapture ? totalUnitCount(fortDec.territory) : '?';
+        const fortNote  = fortDec?._afterCapture
+            ? `<span class="rule-note">Fortify the newly captured city (+${fortCount} Footmen).</span>`
+            : `<span class="rule-note">${fortDec?.hasCastle?'+4 Footmen (castle bonus).':'+3 Footmen to a city.'}</span>`;
+        const fortStep  = `<b>FORTIFY:</b> Add <b>+${fortCount} Footmen</b> to <b>${fortTerr}</b>`
+            + (fortDec?._afterCapture ? ' <em>(after capturing it)</em>' : ` (currently ${currCount} units${fortDec?.hasCastle?' — has castle':''})`)
+            + `. Take them from the supply.\n            ${fortNote}`;
+
+        // Register fortify in pendingMoves (order depends on fortifyAfterExpand)
+        const fortMv = fortDec ? { type:'fortify', territory:fortDec.territory, count:fortDec.count } : null;
+        G.pendingFortify = fortDec; // legacy
+
+        if (!fortifyAfterExpand) {
+            // FORTIFY FIRST path: push fortify step, then compute expand
+            if (fortMv) G.pendingMoves.push(fortMv);
+            steps.push(fortStep);
+            steps.push(null); // ── section divider ──
+        }
+
+        // ── Recompute expand with fortify applied if fortifying first ──
+        if (!fortifyAfterExpand && fortDec && G.board[fortDec.territory]) {
             G.board[fortDec.territory].units.F = (G.board[fortDec.territory].units.F||0) + fortDec.count;
         }
-        // Remove the EXPAND steps we pushed earlier (they used stale board state)
-        // and recompute with the updated board
-        // First, remove the stale pendingMove that EXPAND pushed (if any)
         G.pendingMoves = G.pendingMoves.filter(m => m._berlinBonus || m.type === 'fortify');
         G.pendingMove = null;
-        const postFortExpandDec  = decideExpand(color);
-        const postFortManDec     = decideManeuver(color);
-        const postFortPosDec     = decidePosition(color);
-        // Undo the temporary fortify
-        if (fortDec && G.board[fortDec.territory]) {
+        const postFortExpandDec = fortifyAfterExpand ? preExpandDec : decideExpand(color);
+        const postFortManDec    = decideManeuver(color);
+        const postFortPosDec    = decidePosition(color);
+        // Undo temporary fortify if it was applied
+        if (!fortifyAfterExpand && fortDec && G.board[fortDec.territory]) {
             G.board[fortDec.territory].units.F = Math.max(0, (G.board[fortDec.territory].units.F||0) - fortDec.count);
         }
         // Rebuild EXPAND block with post-fortify decisions
@@ -2856,6 +2899,11 @@ function generateSteps(card, color, coins) {
             EXPAND_POST = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver. ✓ and continue.`];
         }
         steps.push(...EXPAND_POST);
+        if (fortifyAfterExpand) {
+            steps.push(null); // ── section divider ──
+            if (fortMv) G.pendingMoves.push(fortMv);
+            steps.push(fortStep);
+        }
         return steps;
     }
 
@@ -4397,6 +4445,8 @@ function closeCombat(){
                     }
                     checkWin(b.color);
                 }
+                // First-capture coin bonus
+                awardFirstCapture(b.to, b.color);
                 const _cpSK = shieldKeyForTerr(b.to);
                 if (_cpSK) {
                     if (!G.shields) G.shields = {};
@@ -4825,9 +4875,12 @@ function buildHumanFlow(card, variant) {
     }
     else if (card === 'FORTIFY / EXPAND OR MANEUVER') {
         const doFort = variant==='FORTIFY_EXPAND'||variant==='FORTIFY_MANEUVER';
-        if (doFort) steps.push(mk('fortify_city','FORTIFY (BONUS) — choose a city'));
+        // Expand/maneuver always runs first; fortify_city runs after.
+        // hfPickDest will decide whether to hoist fortify_city before the expand step
+        // (non-city destination) or keep it after (city/castle — player chooses).
         if (variant==='FORTIFY_EXPAND'||variant==='EXPAND') { addExpand(); addBerlinBonus(); }
         else addManeuver();
+        if (doFort) steps.push(mk('fortify_city', 'FORTIFY (BONUS) — choose a city'));
     }
     else if (card === 'SIEGE ASSAULT / EXPAND OR MANEUVER') {
         const doSiege = variant==='SIEGE_EXPAND'||variant==='SIEGE_MANEUVER';
@@ -5055,16 +5108,55 @@ function hfPickDest(idx, to) {
     const isSiege = step.type === 'siege';
     const avail = G.board[from]?.units || {F:0,A:0,C:0,S:0};
     const totalAvail = totalUnitCount(from);
-    // Leave 1 unit behind. For split_expand_2 the board already reflects
-    // step 1's deduction (applyHumanMove runs immediately on confirm), so
-    // we just use the live board total — no double-subtraction needed.
     const maxMove = totalAvail - 1; // must leave 1 behind
 
-    // Default: move everything movable (matching previous behaviour as starting point)
     const defaultUnits = isSiege ? humanSiegeMovingUnits(from) : humanMovingUnits(from);
 
     step.to = to;
     step.pendingUnits = { F: defaultUnits.F||0, A: defaultUnits.A||0, C: defaultUnits.C||0, S: defaultUnits.S||0 };
+
+    // Fortify timing: only relevant for plain expand steps (not siege/maneuver/split)
+    if (step.type === 'expand') {
+        const fortIdx = G.humanFlow.findIndex((s, i) => i > idx && s.type === 'fortify_city' && s.state !== 'done' && s.state !== 'skipped');
+        if (fortIdx >= 0) {
+            const destIsCity    = (T[to]?.tax||0) > 0;
+            const destHasCastle = !!(G.board[to]?.castle);
+            const destQualifies = destIsCity || destHasCastle;
+            if (destQualifies) {
+                // City or castle destination → ask before/after
+                step._fortIdx = fortIdx;  // remember where fortify_city lives
+                step.state = 'fortify_when';
+                renderHumanTurn(); return;
+            } else {
+                // Non-city/castle destination → fortify must happen before expand.
+                // Move fortify_city step to just before this expand step.
+                const [fortStep] = G.humanFlow.splice(fortIdx, 1);
+                G.humanFlow.splice(idx, 0, fortStep);
+                // idx is now the fortify step; this expand step is at idx+1.
+                // We don't change step.state to 'fortify_when' — just go to pick_count.
+            }
+        }
+    }
+
+    step.state = 'pick_count';
+    renderHumanTurn();
+}
+
+// Handle the fortify-when choice (before/after expand) from inside an expand step
+function hfFortifyWhen(idx, choice) {
+    const step = G.humanFlow[idx];
+    if (!step || step.state !== 'fortify_when') return;
+    if (choice === 'before') {
+        // Move fortify_city to just before this expand step
+        const fortIdx = G.humanFlow.findIndex((s, i) => i > idx && s.type === 'fortify_city' && s.state !== 'done' && s.state !== 'skipped');
+        if (fortIdx >= 0) {
+            const [fortStep] = G.humanFlow.splice(fortIdx, 1);
+            G.humanFlow.splice(idx, 0, fortStep);
+            // idx is now the fortify step; expand is at idx+1
+        }
+    }
+    // 'after': fortify_city stays after expand — nothing to move
+    step._fortIdx = null;
     step.state = 'pick_count';
     renderHumanTurn();
 }
@@ -5090,6 +5182,15 @@ function hfUndoTo(idx) {
     // Go back to destination picker
     const step = G.humanFlow[idx];
     if (!step) return;
+    // If fortify_city was moved before this step (for non-city dest or 'before' choice),
+    // move it back to after this step so the player can re-decide on a new destination.
+    const preFortIdx = G.humanFlow.findIndex((s, i) => i < idx && s.type === 'fortify_city' && s.state !== 'done' && s.state !== 'skipped');
+    if (preFortIdx >= 0) {
+        const [fortStep] = G.humanFlow.splice(preFortIdx, 1);
+        // After splice, this expand step is now at idx-1; insert fortify after it
+        G.humanFlow.splice(idx, 0, fortStep);  // insert after expand (now at idx-1+1=idx)
+    }
+    step._fortIdx = null;
     step.to = null;
     step.pendingUnits = null;
     step.state = 'pick_to';
@@ -5336,6 +5437,30 @@ function renderFlowStepBody(step, idx) {
         case 'split_expand':
         case 'maneuver':
         case 'siege': {
+            // fortify_when: destination chosen, ask before/after fortify (city/castle dests only)
+            if (step.state === 'fortify_when') {
+                const to = step.to;
+                const destIsCity    = (T[to]?.tax||0) > 0;
+                const destHasCastle = !!(G.board[to]?.castle);
+                const destLabel = terrLabel(to) + (destHasCastle ? ' 🏰' : '') + (destIsCity ? ` (Tax ${T[to].tax})` : '');
+                return `<div style="font-size:0.85em;margin-bottom:8px;">
+                    You're expanding to <b>${destLabel}</b>.
+                    This is a <b>${destHasCastle ? 'castle' : 'city'} territory</b> — you may fortify it after capturing it.
+                    When do you want to use your Fortify bonus?
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                    <div class="hcp-card" onclick="hfFortifyWhen(${idx},'before')" style="text-align:center;">
+                        <div style="font-size:1.2em;">⬆ Fortify First</div>
+                        <div style="font-size:0.78em;color:var(--ink-light);margin-top:4px;">Reinforce an existing city/castle before expanding</div>
+                    </div>
+                    <div class="hcp-card" onclick="hfFortifyWhen(${idx},'after')" style="text-align:center;border-color:var(--gold,#c8952a);background:rgba(200,149,42,0.05);">
+                        <div style="font-size:1.2em;">⬇ Fortify After</div>
+                        <div style="font-size:0.78em;color:var(--ink-light);margin-top:4px;">Expand first — then fortify <b>${terrLabel(to)}</b> or any city</div>
+                    </div>
+                </div>
+                <button class="btn-retreat" style="margin-top:8px;" onclick="hfUndoTo(${idx})">← Change destination</button>`;
+            }
+
             // pick_count: destination chosen, player adjusting unit quantities
             if (step.state === 'pick_count') {
                 const from = step.from;
@@ -6413,6 +6538,8 @@ function applyBattleResult(b, result) {
         } else {
             addLog(`${cName(b.color)} captures ${b.to} from ${cName(defColor)}. ${unitStr(result.attUnits)} remain.`);
         }
+        // First-capture coin bonus
+        awardFirstCapture(b.to, b.color);
         // Assign shield token and fire reminder
         const _bsk = shieldKeyForTerr(b.to);
         if (_bsk) {
