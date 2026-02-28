@@ -1280,6 +1280,7 @@ function decideSpendPlacements(color, purchase) {
 function decideExpand(color) {
     const candidates = [];
     for (const t of ownedBy(color)) {
+        if (isContested(t)) continue; // cannot move out of a contested territory
         const movable = movableCount(t, color);
         if (movable <= 0) continue;
         for (const adj of (T[t]?.adj || [])) {
@@ -1304,6 +1305,7 @@ function decideExpand(color) {
 function decideSplitExpand(color) {
     const candidates = [];
     for (const t of ownedBy(color)) {
+        if (isContested(t)) continue; // cannot move out of a contested territory
         const movable = movableCount(t, color);
         if (movable <= 0) continue;
         // 1-step cities
@@ -1337,6 +1339,7 @@ function decidePosition(color) {
     // Primary sort: most movable units. Tiebreaker: highest-tax target city.
     const candidates = [];
     for (const t of ownedBy(color)) {
+        if (isContested(t)) continue; // cannot move out of a contested territory
         const movable = movableCount(t, color);
         if (movable <= 0) continue;
         for (const adj of (T[t]?.adj || [])) {
@@ -1367,10 +1370,12 @@ function decidePosition(color) {
 }
 
 function decideFortify(color) {
-    // Can fortify contested territories only as the DEFENDER (it's still your city)
+    // Can fortify: cities/castles we own that are NOT contested (or are contested and we are the DEFENDER)
+    // Cannot fortify: any territory we are the attacker at, or any non-owned territory
     const opts = ownedBy(color).filter(n =>
         (T[n].tax > 0 || G.board[n].castle) &&
-        !(isContested(n) && isAttackerOf(color, n))
+        // If contested, only allowed if we're the defender (not the attacker)
+        (!isContested(n) || isDefenderOf(color, n))
     );
     if (!opts.length) return null;
     // Capitals = starting cities (any city in CAPITALS list)
@@ -1546,15 +1551,26 @@ function decideManeuver(color) {
 // ================================================================
 // BOARD UPDATES (called when turn is completed)
 // ================================================================
-function applyFortify(territory, count) {
+function applyFortify(territory, count, actingColor) {
     if (!G.board[territory]) return;
+    // Safety: never fortify an enemy territory (shouldn't happen, but guard it)
+    const terrOwner = G.board[territory]?.owner;
+    if (actingColor && terrOwner && terrOwner !== actingColor && terrOwner !== 'neutral') {
+        addLog(`⚠ FORTIFY BLOCKED: ${cName(actingColor)} tried to fortify ${territory} (owned by ${cName(terrOwner)}) — skipped.`);
+        return;
+    }
+    // Safety: never fortify a contested territory as the attacker
+    if (actingColor && isContested(territory) && isAttackerOf(actingColor, territory)) {
+        addLog(`⚠ FORTIFY BLOCKED: ${cName(actingColor)} is the attacker at contested ${territory} — cannot fortify there.`);
+        return;
+    }
     const before = totalUnitCount(territory);
     G.board[territory].units.F += count;
-    const _fColor = G.board[territory]?.owner;
+    const logColor = actingColor || terrOwner;
     const _fConNote = isContested(territory)
-        ? (isDefenderOf(_fColor, territory) ? ' [CONTESTED — DEFENDING]' : ' [CONTESTED — ATTACKER ⚠]')
+        ? (isDefenderOf(logColor, territory) ? ' [CONTESTED — DEFENDING]' : ' [CONTESTED — ATTACKER ⚠]')
         : '';
-    cLog(_fColor, `FORTIFY +${count} Footm${count>1?'en':'an'} at ${boardStr(territory)}${_fConNote} (was ${before} total)`);
+    cLog(logColor, `${cName(logColor)} FORTIFY +${count} Footm${count>1?'en':'an'} at ${boardStr(territory)}${_fConNote} (was ${before} total)`);
 }
 
 function applySpend(color, purchase, placements) {
@@ -2819,18 +2835,18 @@ function generateSteps(card, color, coins) {
         const preExpandDec = decideExpand(color);
         const expandDestIsCity = preExpandDec && ((T[preExpandDec.to]?.tax||0) > 0 || G.board[preExpandDec.to]?.castle);
 
-        // Prefer fortifying the expansion destination (city/castle) AFTER capturing it.
-        // Fall back to normal decideFortify if no city/castle destination available.
+        // Prefer fortifying the expansion destination AFTER a PEACEFUL capture (neutral city/castle only).
+        // Enemy destinations require combat that resolves later — can't fortify before result is known.
         let fortDec;
         let fortifyAfterExpand = false;
-        if (expandDestIsCity) {
-            // The dest may not be owned by us yet (we're capturing it), so build fortDec manually.
-            // After capture, it will qualify: cities get +3, castle territories get +4.
+        if (expandDestIsCity && preExpandDec && !preExpandDec.isEnemy) {
+            // Neutral destination: will be captured peacefully — safe to fortify after
             const destHasCastle = !!(G.board[preExpandDec.to]?.castle);
             fortDec = { territory: preExpandDec.to, count: destHasCastle ? 4 : 3, hasCastle: destHasCastle, _afterCapture: true };
             fortifyAfterExpand = true;
         } else {
-            // Non-city/castle destination (or no expand) — fortify an existing owned city first
+            // Enemy destination (combat required), non-city destination, or no expand:
+            // fortify an existing owned city first (before the move)
             fortDec = decideFortify(color);
             fortifyAfterExpand = false;
         }
@@ -2846,7 +2862,7 @@ function generateSteps(card, color, coins) {
             + `. Take them from the supply.\n            ${fortNote}`;
 
         // Register fortify in pendingMoves (order depends on fortifyAfterExpand)
-        const fortMv = fortDec ? { type:'fortify', territory:fortDec.territory, count:fortDec.count } : null;
+        const fortMv = fortDec ? { type:'fortify', territory:fortDec.territory, count:fortDec.count, color } : null;
         G.pendingFortify = fortDec; // legacy
 
         if (!fortifyAfterExpand) {
@@ -3053,7 +3069,7 @@ function advanceTurn() {
             applyShieldBonus('Kiev', mv.color, 'spend');
             // Berlin shield (castle cost reduction) already baked into spend table; extra maneuver handled in generateSteps
         } else if (mv.type === 'fortify') {
-            applyFortify(mv.territory, mv.count);
+            applyFortify(mv.territory, mv.count, mv.color || activeColor());
         } else if (mv.type === 'expand' || mv.type === 'position' || mv.type === 'maneuver') {
             if (!mv.isEnemy) {
                 applyNonCombatMove(mv);
