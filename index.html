@@ -1398,7 +1398,11 @@ function decideFortify(color) {
         return 0;                                             // random (caller rolls die)
     });
     const t = opts[0];
-    const addCount = G.board[t].castle ? 4 : 3;
+    const baseCount = G.board[t].castle ? 4 : 3;
+    // Cap to available Footman supply — never place units that don't exist
+    const availF = computeSupply().army[color]?.F ?? 0;
+    const addCount = Math.min(baseCount, availF);
+    if (addCount <= 0) return null; // no Footmen left to fortify with
     return { territory:t, count:addCount, hasCastle: G.board[t].castle };
 }
 
@@ -1681,27 +1685,64 @@ function applyMove(from, to, movingUnits, attackerWon, survivorCount, survivingC
 }
 
 
+// Parse a SPEND_TABLE row string into unit counts {F, A, C, S, Castle}
+function parseSpendRow(items) {
+    const r = { F:0, A:0, C:0, S:0, Castle:0 };
+    const m = (pat) => { const x = items.match(pat); return x ? parseInt(x[1]) : 0; };
+    r.F      = m(/(\d+) Footm/);
+    r.A      = m(/(\d+) Arch/);
+    r.C      = m(/(\d+) Cavalry/);
+    r.S      = items.includes('Siege') ? 1 : 0;
+    r.Castle = items.includes('Castle') ? 1 : 0;
+    return r;
+}
+
 function getBestSpend(coins, color) {
-    // WIN CONDITION: Crown Cards cost 10, always available, preferred over any other purchase
     const currentCrowns = (G.crowns?.[color]||0);
+
+    // WIN CONDITION: one crown card away from 7 — always buy if affordable
     if (currentCrowns + 1 >= 7 && coins >= 10) {
         return { cost: 10, items: '1 Crown Card', crownCard: true };
     }
-    // Berlin shield: castles cost 3 fewer coins.
-    // Only inflate purchasing power for rows that actually contain a Castle,
-    // to avoid selecting an unaffordable non-castle row with the inflated budget.
+
+    // STRATEGIC CROWN CARDS:
+    // At 5 crowns (2 away from winning), crown cards are the most direct path —
+    // always prefer them over military spending.
+    if (currentCrowns >= 5 && coins >= 10) {
+        return { cost: 10, items: '1 Crown Card', crownCard: true };
+    }
+
+    // At 3-4 crowns with no viable military expansion, invest in crowns directly.
+    // decideExpand returning null means every adjacent city is either owned, too
+    // heavily defended, or blocked — the AI is militarily stuck.
+    if (currentCrowns >= 3 && coins >= 10 && !decideExpand(color)) {
+        return { cost: 10, items: '1 Crown Card', crownCard: true };
+    }
+    const supply = computeSupply();
+    const armySup = supply.army[color] || { F:0, A:0, C:0, S:0 };
+    const castleSupply = supply.Castle;
     const hasBerlin = (color && G.shields?.['Berlin'] === color && (color !== S.playerColor || S.autoTest));
-    const castleSupply = computeSupply().Castle;
     const keys = Object.keys(SPEND_TABLE).map(Number).sort((a,b)=>b-a);
-    // Build eligible keys: for castle rows use (coins+3) budget if Berlin; for others use real coins
     const eligibleKeys = keys.filter(k => {
-        if (castleSupply <= 0 && SPEND_TABLE[k].includes('Castle')) return false;
-        const budget = (hasBerlin && SPEND_TABLE[k].includes('Castle')) ? coins + 3 : coins;
-        return k <= budget;
+        const items = SPEND_TABLE[k];
+        const budget = (hasBerlin && items.includes('Castle')) ? coins + 3 : coins;
+        if (k > budget) return false;
+        // Check every component against supply
+        const req = parseSpendRow(items);
+        if (req.Castle > 0 && castleSupply < req.Castle) return false;
+        if (req.F > 0 && armySup.F < req.F) return false;
+        if (req.A > 0 && armySup.A < req.A) return false;
+        if (req.C > 0 && armySup.C < req.C) return false;
+        if (req.S > 0 && armySup.S < req.S) return false;
+        return true;
     });
-    const k = eligibleKeys[0]; // already sorted descending — best affordable row
-    const result = k ? { cost:k, items:SPEND_TABLE[k] } : { cost:5, items:SPEND_TABLE[5] };
-    // Apply Berlin discount if the chosen row has a Castle
+    const k = eligibleKeys[0];
+    // If nothing affordable with current supply, fall back to cheapest fully-available row
+    if (!k) {
+        // Last resort: just tax next turn — return a 0-cost no-op so we don't crash
+        return { cost: 0, items: '(no affordable purchase — supply exhausted)', _noOp: true };
+    }
+    const result = { cost: k, items: SPEND_TABLE[k] };
     if (hasBerlin && result.items.includes('Castle')) {
         result.cost = Math.max(result.cost - 3, 0);
         result._berlinDiscount = true;
@@ -2463,9 +2504,9 @@ function showWinnerScreen() {
     const standings = [...(G.seating||[])].sort((a,b)=>(G.crowns[b]||0)-(G.crowns[a]||0))
         .map((col,i) => {
             const colHex = COLOR_HEX[col]||'#888';
-            const colLight = ['orange','green','blue'].includes(col);
+            const colorLabel = col.toUpperCase() + (col===S.playerColor?' (YOU)':'');
             return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-radius:5px;margin:3px 0;background:${colHex}22;border-left:4px solid ${colHex};">
-                <span style="font-weight:700;color:${colHex};">${i+1}. ${cName(col).toUpperCase()}${col===S.playerColor?' (YOU)':''}</span>
+                <span style="font-weight:700;color:${colHex};">${i+1}. ${colorLabel}</span>
                 <span>👑 ${G.crowns[col]||0} &nbsp;·&nbsp; ${ownedBy(col).length} territories</span>
             </div>`;
         }).join('');
@@ -2811,31 +2852,38 @@ function generateSteps(card, color, coins) {
         }
         if (_savedGrace) {
             steps.push(`<div class="shield-reminder">⚠ SAVED BY THE CROWN: ${C} has no cities — cannot tax. May spend only because ${C} controls a castle.</div>`);
-            // Force spend regardless of coin count
-            const { cost, items } = getBestSpend(coins, color);
-            const hasCastle2 = items.includes("Castle");
-            const hasSiege2  = items.includes("Siege Engine");
-            const purchase2  = { cost, items,
-                F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
-                A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
-                C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
-                S:hasSiege2?1:0, castle:hasCastle2 };
-            const placements2 = decideSpendPlacements(color, purchase2);
-            G.pendingMove = { type:'spend', color, purchase:purchase2, placements:placements2 };
-            G.pendingMoves.push(G.pendingMove);
-            G._stepCoinEffects[0] = -cost;
-            if (coins < cost) {
-                steps.push(`<b>INSUFFICIENT COINS</b> — ${C} cannot afford any purchase. ✓ Skip.`);
+            const savedSpend = getBestSpend(coins, color);
+            if (savedSpend._noOp || coins < savedSpend.cost) {
+                steps.push(`<b>INSUFFICIENT PURCHASE — SAVED BY THE CROWN:</b> ${C} cannot afford or find any purchase (supply exhausted or too few coins). ✓ Skip.`);
+                G.pendingMove = { type:'none' };
+                G.pendingMoves.push(G.pendingMove);
             } else {
+                const { cost, items } = savedSpend;
+                const hasCastle2 = items.includes("Castle");
+                const hasSiege2  = items.includes("Siege Engine");
+                const purchase2  = { cost, items,
+                    F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
+                    A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
+                    C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
+                    S:hasSiege2?1:0, castle:hasCastle2 };
+                const placements2 = decideSpendPlacements(color, purchase2);
+                G.pendingMove = { type:'spend', color, purchase:purchase2, placements:placements2 };
+                G.pendingMoves.push(G.pendingMove);
+                G._stepCoinEffects[0] = -cost;
                 steps.push(`<b>MODE: SPEND (castle only)</b> — Purchase: <span class="buy-highlight">${items}</span> Cost: <b>${cost} coins.</b>`);
             }
             return steps;
         }
         // Crown card win condition: if buying crown card wins the game, TAX until 10 coins
-        const _crownWinNeeds10 = (G.crowns?.[color]||0) + 1 >= 7 && coins < 10;
+        const _crownWinNeeds10 = ((G.crowns?.[color]||0) + 1 >= 7 && coins < 10)
+            || ((G.crowns?.[color]||0) >= 5 && coins < 10)
+            || ((G.crowns?.[color]||0) >= 3 && coins < 10 && !decideExpand(color));
         if (coins <= 4 || _crownWinNeeds10) {
             if (_crownWinNeeds10 && coins > 4) {
-                steps.push(`<div class="shield-reminder">👑 CROWN STRATEGY: ${C} needs 1 more Crown — saving for winning Crown Card purchase. Taxing to reach 10 coins (has ${coins}).</div>`);
+                const _cMsg = (G.crowns?.[color]||0) >= 5
+                    ? `👑 CROWN STRATEGY: ${C} has ${G.crowns[color]||0} crowns — Crown Cards are the fastest path to 7. Saving up (has ${coins} coins).`
+                    : `👑 CROWN STRATEGY: ${C} has ${G.crowns[color]||0} crowns, no viable expansion — saving for Crown Card (needs 10 coins, has ${coins}).`;
+                steps.push(`<div class="shield-reminder">${_cMsg}</div>`);
             }
             const taxDec = decideTax(color);
             const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
@@ -2853,43 +2901,53 @@ function generateSteps(card, color, coins) {
                 steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS[_taxSK1].reminder}</div>`;
             }
         } else {
-            const { cost, items } = getBestSpend(coins, color);
-            const hasCastle = items.includes("Castle");
-            const hasSiege  = items.includes("Siege Engine");
-            // Parse purchase into unit counts
-            const purchase = { cost, items,
-                F: (items.match(/(\d+) Footm/)||[0,0])[1]|0,
-                A: (items.match(/(\d+) Archer/)||[0,0])[1]|0,
-                C: (items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
-                S: hasSiege ? 1 : 0,
-                castle: hasCastle
-            };
-            const placements = decideSpendPlacements(color, purchase);
-            G.pendingMove = { type:'spend', color, purchase, placements };
-            G.pendingMoves.push(G.pendingMove);
-            // Register coin effect: checking step 0 deducts cost coins
-            G._stepCoinEffects[0] = -cost;
-            // Track crown card flag on purchase
-            if (purchase.crownCard) G._pendingCrownCard = color;
-            steps.push(`<b>MODE: SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase:<span class="buy-highlight">${items}</span>Cost: <b>${cost} coins.</b> ✓ Check this step to automatically deduct the cost.
+            const spendResult = getBestSpend(coins, color);
+            if (spendResult._noOp) {
+                // All army supply exhausted — tax instead
+                steps.push(`<div class="shield-reminder">⚠ SUPPLY EXHAUSTED: ${C} has no units left to recruit. Taxing instead.</div>`);
+                const taxDec = decideTax(color);
+                const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
+                const taxAmt  = taxDec ? taxDec.yield : '?';
+                G.pendingMove = { type:'tax', color, city: taxCity, amount: taxAmt };
+                G.pendingMoves.push(G.pendingMove);
+                G._stepCoinEffects[1] = taxAmt;
+                steps.push(`Tax <b>${taxCity}</b> — yield is <b>${taxAmt} coins</b>. ✓ Check this step to automatically add ${taxAmt} coins to ${C}'s total.
+                    <span class="rule-note">Supply exhausted — taxing to save for future purchases.</span>`);
+            } else {
+                const { cost, items } = spendResult;
+                const hasCastle = items.includes("Castle");
+                const hasSiege  = items.includes("Siege Engine");
+                const purchase = { cost, items,
+                    F: (items.match(/(\d+) Footm/)||[0,0])[1]|0,
+                    A: (items.match(/(\d+) Archer/)||[0,0])[1]|0,
+                    C: (items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
+                    S: hasSiege ? 1 : 0,
+                    castle: hasCastle
+                };
+                const placements = decideSpendPlacements(color, purchase);
+                G.pendingMove = { type:'spend', color, purchase, placements };
+                G.pendingMoves.push(G.pendingMove);
+                G._stepCoinEffects[0] = -cost;
+                if (purchase.crownCard) G._pendingCrownCard = color;
+                steps.push(`<b>MODE: SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase:<span class="buy-highlight">${items}</span>Cost: <b>${cost} coins.</b> ✓ Check this step to automatically deduct the cost.
 `);
-            placements.forEach((p,i) => {
-                const curr = totalUnitCount(p.territory);
-                if (p.type === 'castle') {
-                    steps.push(`<b>Place Castle</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
-                } else if (p.type === 'siege') {
-                    steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest territory to an enemy castle.`);
-                    if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color) {
-                        steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`;
+                placements.forEach((p,i) => {
+                    const curr = totalUnitCount(p.territory);
+                    if (p.type === 'castle') {
+                        steps.push(`<b>Place Castle</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
+                    } else if (p.type === 'siege') {
+                        steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest territory to an enemy castle.`);
+                        if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color) {
+                            steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`;
+                        }
+                    } else {
+                        const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
+                        steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
                     }
-                } else {
-                    const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
-                    steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
+                });
+                if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color) {
+                    steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`;
                 }
-            });
-            // Kiev shield — inline into the last placement step (not a separate checkable)
-            if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color) {
-                steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`;
             }
         }
         return steps;
@@ -3120,10 +3178,15 @@ function generateSteps(card, color, coins) {
             return steps;
         }
         steps.push(`<b>TAX OR SPEND (MAIN):</b>`);
-        const _crownWinNeeds10b = (G.crowns?.[color]||0) + 1 >= 7 && coins < 10;
+        const _crownWinNeeds10b = ((G.crowns?.[color]||0) + 1 >= 7 && coins < 10)
+            || ((G.crowns?.[color]||0) >= 5 && coins < 10)
+            || ((G.crowns?.[color]||0) >= 3 && coins < 10 && !decideExpand(color));
         if (coins <= 4 || _crownWinNeeds10b) {
             if (_crownWinNeeds10b && coins > 4) {
-                steps.push(`<div class="shield-reminder">👑 CROWN STRATEGY: ${C} needs 1 more Crown — saving for winning Crown Card purchase. Taxing to reach 10 coins (has ${coins}).</div>`);
+                const _cMsg2 = (G.crowns?.[color]||0) >= 5
+                    ? `👑 CROWN STRATEGY: ${C} has ${G.crowns[color]||0} crowns — Crown Cards are the fastest path to 7. Saving up (has ${coins} coins).`
+                    : `👑 CROWN STRATEGY: ${C} has ${G.crowns[color]||0} crowns, no viable expansion — saving for Crown Card (needs 10 coins, has ${coins}).`;
+                steps.push(`<div class="shield-reminder">${_cMsg2}</div>`);
             }
             const taxDec = decideTax(color);
             const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
@@ -3139,35 +3202,47 @@ function generateSteps(card, color, coins) {
                 steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS[_taxSK2].reminder}</div>`;
             }
         } else {
-            const { cost, items } = getBestSpend(coins, color);
-            const hasCastle = items.includes("Castle"), hasSiege = items.includes("Siege Engine");
-            const purchase = { cost, items,
-                F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
-                A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
-                C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
-                S:hasSiege?1:0, castle:hasCastle };
-            const placements = decideSpendPlacements(color, purchase);
-            G.pendingMove = { type:'spend', color, purchase, placements };
-            G.pendingMoves.push(G.pendingMove);
-            G._stepCoinEffects[3] = -cost; // step index 3 = header+spend combined
-            steps.push(`<b>SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase: <span class="buy-highlight">${items}</span> Cost: <b>${cost} coins.</b> ✓ Check to deduct.
+            const spendResult2 = getBestSpend(coins, color);
+            if (spendResult2._noOp) {
+                steps.push(`<div class="shield-reminder">⚠ SUPPLY EXHAUSTED: ${C} has no units left to recruit. Taxing instead.</div>`);
+                const taxDec2 = decideTax(color);
+                const taxCity2 = taxDec2 ? taxDec2.city : '(highest-yield city)';
+                const taxAmt2  = taxDec2 ? taxDec2.yield : '?';
+                G.pendingMove = { type:'tax', color, city: taxCity2, amount: taxAmt2 };
+                G.pendingMoves.push(G.pendingMove);
+                G._stepCoinEffects[4] = taxAmt2;
+                steps.push(`Tax <b>${taxCity2}</b> — yield is <b>${taxAmt2} coins</b>. ✓ Check to automatically add ${taxAmt2} coins.
+                    <span class="rule-note">Supply exhausted — taxing instead.</span>`);
+            } else {
+                const { cost, items } = spendResult2;
+                const hasCastle = items.includes("Castle"), hasSiege = items.includes("Siege Engine");
+                const purchase = { cost, items,
+                    F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
+                    A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
+                    C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
+                    S:hasSiege?1:0, castle:hasCastle };
+                const placements = decideSpendPlacements(color, purchase);
+                G.pendingMove = { type:'spend', color, purchase, placements };
+                G.pendingMoves.push(G.pendingMove);
+                G._stepCoinEffects[3] = -cost;
+                steps.push(`<b>SPEND</b> — ${C} has ${coins} coins (≥ 5). Purchase: <span class="buy-highlight">${items}</span> Cost: <b>${cost} coins.</b> ✓ Check to deduct.
 `);
-            placements.forEach(p => {
-                const curr = totalUnitCount(p.territory);
-                if (p.type === 'castle') {
-                    steps.push(`<b>Place Castle</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
-                } else if (p.type === 'siege') {
-                    steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest to an enemy castle.`);
-                    if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color)
-                        steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`;
-                } else {
-                    const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
-                    steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
-                }
-            });
-            // Inline Kiev reminder into last placement step
-            if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color)
-                steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`;
+                placements.forEach(p => {
+                    const curr = totalUnitCount(p.territory);
+                    if (p.type === 'castle') {
+                        steps.push(`<b>Place Castle</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
+                    } else if (p.type === 'siege') {
+                        steps.push(`<b>Place Siege Engine</b> at <b>${p.territory}</b> — closest to an enemy castle.`);
+                        if (CITY_SHIELDS["Constantinople"]?.trigger === 'spend' && G.shields?.["Constantinople"] === color)
+                            steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Constantinople"].reminder}</div>`;
+                    } else {
+                        const qname = p.unitType==='C'?'Cavalry':p.unitType==='A'?'Archer':'Footman';
+                        steps.push(`<b>Place ${p.count} ${qname}${p.count>1?'s':''}</b> at <b>${p.territory}</b> (Tax ${T[p.territory]?.tax||'?'}, currently ${curr} units).`);
+                    }
+                });
+                if (CITY_SHIELDS["Kiev"]?.trigger === 'spend' && G.shields?.["Kiev"] === color)
+                    steps[steps.length-1] += `<div class="shield-reminder">${CITY_SHIELDS["Kiev"].reminder}</div>`;
+            }
         }
         return steps;
     }
