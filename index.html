@@ -767,6 +767,7 @@
                 <div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;">
                     <button onclick="openBoardEditor()" style="text-align:left;background:none;border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);cursor:pointer;">🗺 Board State Editor</button>
                     <button onclick="openSaveLoad()" style="text-align:left;background:none;border:1px solid var(--border);border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:var(--ink);cursor:pointer;">💾 Save / Load Game</button>
+                    <button id="autotest-btn" onclick="autoTestToggle()" style="text-align:left;background:none;border:1px solid #555;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#555;cursor:pointer;">🤖 Auto-Test Mode: OFF</button>
                     <div id="stuck-hint" style="display:none;">
                         <button onclick="forceAdvance()" style="width:100%;text-align:left;background:none;border:1px solid #e0a020;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#996600;cursor:pointer;">⏩ Force Advance Turn</button>
                     </div>
@@ -1683,7 +1684,7 @@ function getBestSpend(coins, color) {
     // Berlin shield: castles cost 3 fewer coins.
     // Only inflate purchasing power for rows that actually contain a Castle,
     // to avoid selecting an unaffordable non-castle row with the inflated budget.
-    const hasBerlin = (color && G.shields?.['Berlin'] === color && color !== S.playerColor);
+    const hasBerlin = (color && G.shields?.['Berlin'] === color && (color !== S.playerColor || S.autoTest));
     const castleSupply = computeSupply().Castle;
     const keys = Object.keys(SPEND_TABLE).map(Number).sort((a,b)=>b-a);
     // Build eligible keys: for castle rows use (coins+3) budget if Berlin; for others use real coins
@@ -2133,7 +2134,7 @@ function showShieldReminder(city, color, context) {
 // Apply city shield bonus automatically for an automa (no-op for human — they get a reminder instead)
 function applyShieldBonus(city, color, context) {
     if (!G.shields || G.shields[city] !== color) return;
-    if (color === S.playerColor) return; // human handles manually via reminder
+    if (color === S.playerColor && !S.autoTest) return; // human handles manually via reminder (unless auto-test)
     const sh = CITY_SHIELDS[city];
     if (!sh) return;
 
@@ -2646,7 +2647,7 @@ function generateSteps(card, color, coins) {
             const berlinReminder = hasBerlinShield
                 ? `<div class="shield-reminder">${color === S.playerColor ? CITY_SHIELDS['Berlin'].reminder : '🛡 BERLIN SHIELD: ' + cName(color) + ' expands then also maneuvers (bonus action). Castles cost 3 fewer coins.'}</div>`
                 : null;
-            if (hasBerlinShield && color !== S.playerColor) {
+            if (hasBerlinShield && (color !== S.playerColor || S.autoTest)) {
                 const bonusManeuver = decideManeuver(color);
                 if (bonusManeuver) {
                     const bmMoving = unitsToMove(bonusManeuver.from, bonusManeuver.movable, false);
@@ -2926,7 +2927,7 @@ function generateSteps(card, color, coins) {
             const pBerlinNote  = pHasBerlin
                 ? `<div class="shield-reminder">${color===S.playerColor?CITY_SHIELDS['Berlin'].reminder:'🛡 BERLIN SHIELD: '+cName(color)+' expands then also maneuvers. Castles cost 3 fewer coins.'}</div>`
                 : null;
-            if (pHasBerlin && color !== S.playerColor) {
+            if (pHasBerlin && (color !== S.playerColor || S.autoTest)) {
                 const bm = decideManeuver(color);
                 if (bm) { const bmMv = unitsToMove(bm.from,bm.movable,false); G.pendingMoves.push({type:'maneuver',color,from:bm.from,to:bm.to,movingUnits:bmMv,_berlinBonus:true}); }
             }
@@ -3094,6 +3095,144 @@ function skipCombatStep() {}       // deprecated
 // ================================================================
 // ADVANCE TURN
 // ================================================================
+// ================================================================
+// AUTO-TEST MODE  — plays all turns automatically to completion
+// The human player is treated as a fourth automaton: cards are
+// pre-dealt into G.hand[playerColor] and render() bypasses the
+// human-specific UI entirely.
+// ================================================================
+
+function autoTestToggle() {
+    S.autoTest = !S.autoTest;
+    const btn = document.getElementById('autotest-btn');
+    if (S.autoTest) {
+        if (btn) { btn.textContent = '🤖 Auto-Test Mode: ON'; btn.style.color = '#2d7a2d'; btn.style.borderColor = '#2d7a2d'; }
+        addLog('🤖 AUTO-TEST MODE ON — playing all turns automatically.');
+        // Pre-deal cards for current round if human hasn't drawn yet
+        _autoTestDealHuman();
+        scheduleAutoTick();
+    } else {
+        clearTimeout(S._autoTickTimer);
+        if (btn) { btn.textContent = '🤖 Auto-Test Mode: OFF'; btn.style.color = '#555'; btn.style.borderColor = '#555'; }
+        addLog('🎮 AUTO-TEST paused — manual play resumed.');
+        render();
+    }
+}
+
+function _autoTestDealHuman() {
+    // Ensure G.hand[playerColor] has a card for the current step
+    const pc = S.playerColor;
+    if (!pc || !G.hand) return;
+    if (!G.hand[pc]) G.hand[pc] = [];
+    // Fill any missing slots using the human deck
+    for (let slot = 0; slot < 2; slot++) {
+        if (!G.hand[pc][slot]) {
+            if (!G.humanDeck || G.humanDeck.length === 0) {
+                G.humanDeck = shuffle([...DECK_BASE]);
+            }
+            G.hand[pc][slot] = G.humanDeck.shift();
+        }
+    }
+}
+
+function scheduleAutoTick() {
+    if (!S.autoTest) return;
+    clearTimeout(S._autoTickTimer);
+    S._autoTickTimer = setTimeout(autoTick, S.autoSpeed || 500);
+}
+
+function autoTick() {
+    if (!S.autoTest) return;
+    if (G.winner) {
+        // Game over — report and stop
+        S.autoTest = false;
+        const btn = document.getElementById('autotest-btn');
+        if (btn) { btn.textContent = '🤖 Auto-Test Mode: OFF'; btn.style.color = '#555'; btn.style.borderColor = '#555'; }
+        addLog(`🏁 AUTO-TEST COMPLETE — ${G.round} rounds. Winner: ${cName(G.winner).toUpperCase()}`);
+        const standings = [...(G.seating||[])].sort((a,b)=>(G.crowns[b]||0)-(G.crowns[a]||0))
+            .map((c,i)=>`${i+1}. ${cName(c).toUpperCase()} 👑${G.crowns[c]||0} / ${ownedBy(c).length}terr`).join(' | ');
+        addLog(`Standings: ${standings}`);
+        showWinnerScreen();
+        return;
+    }
+
+    // If combat phase overlay is open, flush all remaining battles then close
+    const cpOverlay = document.getElementById('cp-overlay');
+    if (cpOverlay && cpOverlay.classList.contains('open')) {
+        const unresolved = (G.roundCombats||[]).filter(b => !b._resolved);
+        if (unresolved.length === 0) {
+            closeCombatPhase();
+        } else {
+            // Force-resolve every unresolved battle immediately
+            (G.roundCombats||[]).forEach((b, i) => {
+                if (b._resolved) return;
+                const result = resolveAutoBattle(b);
+                G.roundCombats[i]._resolved = true;
+                G.roundCombats[i]._result = result.winner === b.color
+                    ? `${colorLabel(b.color)} wins`
+                    : result.winner === 'draw' ? 'Both eliminated'
+                    : `${colorLabel(b._defColor||G.board[b.to]?.owner||'?')} wins`;
+                G.roundCombats[i]._log = result.log;
+                G.roundCombats[i]._htmlLog = result.htmlLog;
+                applyBattleResult(b, result);
+            });
+            CP.idx = (G.roundCombats||[]).length;
+            closeCombatPhase();
+        }
+        scheduleAutoTick();
+        return;
+    }
+
+    // Normal turn — drive it
+    const color = activeColor();
+
+    // Dismiss round reminder if showing
+    if (G.slot === 0 && G.step === 1 && G._roundReminderDismissed !== G.round) {
+        dismissRoundReminder();
+    }
+
+    // Ensure human has cards pre-dealt
+    if (color === S.playerColor) _autoTestDealHuman();
+
+    if (!G.revealed) {
+        revealAction(); // reveals card and calls generateSteps
+        scheduleAutoTick();
+        return;
+    }
+
+    // Card is revealed, steps generated — apply all coin effects then advance
+    const effects = G._stepCoinEffects || {};
+    const indices = Object.keys(effects).map(Number).sort((a,b)=>a-b);
+    for (const i of indices) {
+        if (G.checkedSteps.has(i)) continue; // already applied
+        const effect = effects[i];
+        const s = G.currentSteps?.[i];
+        if (s === null) continue;
+        if (typeof effect === 'string' && effect.startsWith('kingme:')) {
+            const kingColor = effect.split(':')[1];
+            G.pendingFirst = kingColor;
+            addLog(`${cName(kingColor)} will be First Player next round.`);
+        } else {
+            const delta = Number(effect);
+            const before = G.coins[color];
+            G.coins[color] = Math.max(0, G.coins[color] + delta);
+            if (delta > 0) {
+                const taxCity = (G.pendingMoves||[]).find(m=>m.type==='tax')?.city;
+                cLog(color, `${cName(color)} TAX ${taxCity||''}: +${delta} coins (${before}→${G.coins[color]})`);
+                if (taxCity) applyShieldBonus(shieldKeyForTerr(taxCity)||taxCity, color, 'tax');
+            } else if (delta < 0) {
+                cLog(color, `${cName(color)} SPEND: ${Math.abs(delta)} coins deducted (${before}→${G.coins[color]})`);
+            }
+        }
+        G.checkedSteps.add(i);
+    }
+    // Mark all remaining non-null steps as checked so advanceTurn's guard passes
+    (G.currentSteps||[]).forEach((s,i) => { if (s !== null) G.checkedSteps.add(i); });
+
+    advanceTurn();
+    scheduleAutoTick();
+}
+
 function advanceTurn() {
     if (G.winner) return; // game over — don't advance
     // Apply all pending board changes for this turn in order
@@ -3266,10 +3405,12 @@ function render() {
     document.getElementById('step-display').textContent  = `ACTION ${G.step} of 2`;
 
     const isHuman = active===S.playerColor;
-    document.getElementById('ai-view').style.display    = isHuman ? 'none' : 'block';
-    document.getElementById('human-view').style.display = isHuman ? 'block' : 'none';
+    // In auto-test mode the human is driven as a fourth automaton — show the AI view
+    const showHumanUI = isHuman && !S.autoTest;
+    document.getElementById('ai-view').style.display    = showHumanUI ? 'none' : 'block';
+    document.getElementById('human-view').style.display = showHumanUI ? 'block' : 'none';
 
-    if (isHuman) {
+    if (showHumanUI) {
         renderHumanTurn();
         document.getElementById('steps-panel').style.display = 'none';
     } else if (!G.revealed) {
@@ -3302,6 +3443,23 @@ function render() {
             // Steps missing entirely — regenerate defensively
             const card = G.hand[active]?.[G.step-1];
             if (card) regenerateSteps(card, active);
+        }
+    }
+
+    // AUTO-TEST: drive all turns (including human) automatically
+    if (S.autoTest && !G.winner) {
+        clearTimeout(S._autoTickTimer);
+        const delay = Math.max(50, (S.autoSpeed || 500) * 0.4);
+        if (!G.revealed) {
+            // Need to reveal card — dismiss reminder first if needed
+            S._autoTickTimer = setTimeout(() => {
+                if (G.slot === 0 && G.step === 1 && G._roundReminderDismissed !== G.round) dismissRoundReminder();
+                if (active === S.playerColor) _autoTestDealHuman();
+                revealAction();
+            }, delay);
+        } else {
+            // Card revealed — apply effects and advance
+            S._autoTickTimer = setTimeout(() => { autoTick(); }, delay);
         }
     }
 }
@@ -6236,6 +6394,7 @@ function closeCombatPhase() {
     // G.round was already incremented in advanceTurn before openCombatPhase was called
     if (!G.winner) prepareRound(false);
     render();
+    if (S.autoTest) scheduleAutoTick();
 }
 
 function renderCombatPhase() {
@@ -6252,7 +6411,7 @@ function renderCombatPhase() {
             ? Object.values(b.movingUnits||{}).reduce((s,n)=>s+n,0)
             : totalUnitCount(G.board[b.from]?.units || {});
         const defUnits = totalUnitCount(G.board[b.to]?.units || {});
-        const humanInvolved = b.color === S.playerColor || defColor === S.playerColor;
+        const humanInvolved = !S.autoTest && (b.color === S.playerColor || defColor === S.playerColor);
         const badge = resolved
             ? `<span class="cp-battle-badge done">✓ ${b._result || 'Resolved'}</span>`
             : humanInvolved
