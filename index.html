@@ -1405,9 +1405,9 @@ function decideSiege(color) {
     let candidates = [];
     for (const t of withSiege) {
         for (const adj of T[t].adj) {
-            // Siege Assault: enemy-held castle, NOT across a sea line, NOT into a disputed territory
+            // Siege Assault: any enemy-held territory, NOT across a sea line, NOT into a disputed territory.
+            // Siege engines fire first in combat regardless of whether target has a castle.
             if (G.board[adj]?.owner && G.board[adj].owner !== color && G.board[adj].owner !== 'neutral'
-                    && G.board[adj].castle
                     && !isSeaCrossing(t, adj)
                     && !isContested(adj)) {
                 candidates.push({ from:t, to:adj, defenders: totalUnitCount(adj), defOwner: G.board[adj].owner });
@@ -2686,7 +2686,14 @@ function generateSteps(card, color, coins) {
         } else {
             G.pendingMove = { type:'none' };
             G.pendingMoves.push(G.pendingMove);
-            EXPAND = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver this action. No pieces to move. ✓ and continue.`];
+            const _expNoDiag = ownedBy(color).map(t => {
+                const mv = movableCount(t, color);
+                const leave = leaveBehindCount(t);
+                if (mv <= 0) return `${t}: ${totalUnitCount(t)} unit${totalUnitCount(t)!==1?'s':''} — garrison locks ${leave} (city tax ${T[t]?.tax||0})`;
+                return null;
+            }).filter(Boolean).join(', ');
+            EXPAND = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver this action. No pieces to move. ✓ and continue.`
+                + (_expNoDiag ? `<div class="rule-note" style="margin-top:4px;">Garrison rule: ${_expNoDiag}</div>` : '')];
         }
         return EXPAND;
     }
@@ -2811,7 +2818,15 @@ function generateSteps(card, color, coins) {
                     ? `${C} owns no territories.`
                     : _ownedT.map(t => {
                         const mv = movableCount(t, color);
-                        if (mv <= 0) return `${t}: ${totalUnitCount(t)} units, 0 movable (must leave ${leaveBehindCount(t)})`;
+                        const total = totalUnitCount(t);
+                        const leave = leaveBehindCount(t);
+                        if (mv <= 0) {
+                            const isCityGarrison = T[t]?.tax > 0 && leave > 1;
+                            const reason = isCityGarrison
+                                ? `garrison rule requires leaving ${leave} (tax ${T[t].tax})`
+                                : `must leave 1 unit`;
+                            return `${t}: ${total} unit${total!==1?'s':''}, 0 movable — ${reason}`;
+                        }
                         const adjCities = (T[t]?.adj||[]).filter(a => T[a]?.tax > 0 && G.board[a]?.owner !== color);
                         if (!adjCities.length) return `${t}: ${mv} movable, no adjacent unowned cities`;
                         const blocked = adjCities.map(a => {
@@ -2822,7 +2837,19 @@ function generateSteps(card, color, coins) {
                         return blocked.length ? `${t}: ${mv} movable but ${blocked.join('; ')}` : `${t}: ${mv} movable — no reachable city`;
                     }).join(' | ');
                 cLog(color, `${C} NO MOVE: ${_noMoveDiag}`);
-                steps.push(`<b>NO MOVE POSSIBLE</b> — ${C} cannot Split Expand or Maneuver. ✓ and continue.`);
+                const _splitNoDiagUI = ownedBy(color).map(t => {
+                    const mv = movableCount(t, color);
+                    const leave = leaveBehindCount(t);
+                    if (mv <= 0) {
+                        const isCityGarrison = T[t]?.tax > 0 && leave > 1;
+                        return isCityGarrison
+                            ? `${t}: ${totalUnitCount(t)} unit${totalUnitCount(t)!==1?'s':''} — garrison locks ${leave} (city tax ${T[t].tax})`
+                            : `${t}: ${totalUnitCount(t)} unit${totalUnitCount(t)!==1?'s':''} — must leave 1`;
+                    }
+                    return null;
+                }).filter(Boolean).join(', ');
+                steps.push(`<b>NO MOVE POSSIBLE</b> — ${C} cannot Split Expand or Maneuver. ✓ and continue.`
+                    + (_splitNoDiagUI ? `<div class="rule-note" style="margin-top:4px;">Garrison rule: ${_splitNoDiagUI}</div>` : ''));
             }
         }
         return steps;
@@ -2928,7 +2955,19 @@ function generateSteps(card, color, coins) {
         } else {
             G.pendingMove = { type:'none' };
             G.pendingMoves.push(G.pendingMove);
-            EXPAND_POST = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver. ✓ and continue.`];
+            const _postNoDiag = ownedBy(color).map(t => {
+                const mv = movableCount(t, color);
+                const leave = leaveBehindCount(t);
+                if (mv <= 0) {
+                    const isCityGarrison = T[t]?.tax > 0 && leave > 1;
+                    return isCityGarrison
+                        ? `${t}: ${totalUnitCount(t)} unit${totalUnitCount(t)!==1?'s':''} — garrison locks ${leave} (city tax ${T[t].tax})`
+                        : `${t}: ${totalUnitCount(t)} unit${totalUnitCount(t)!==1?'s':''} — must leave 1`;
+                }
+                return null;
+            }).filter(Boolean).join(', ');
+            EXPAND_POST = [`<b>NO MOVE POSSIBLE</b> — ${C} cannot Expand, Position, or Maneuver. ✓ and continue.`
+                + (_postNoDiag ? `<div class="rule-note" style="margin-top:4px;">Garrison rule: ${_postNoDiag}</div>` : '')];
         }
         steps.push(...EXPAND_POST);
         if (fortifyAfterExpand) {
@@ -2947,7 +2986,8 @@ function generateSteps(card, color, coins) {
             G.pendingMove = { type:'expand', color, from:siegeDec.from, to:siegeDec.to,
                 movingUnits: siegeMovingUnits, movable: siegeMovable, isEnemy:true };
             G.pendingMoves.push(G.pendingMove);
-            steps.push(`<b>SIEGE ASSAULT:</b> Move <b>${unitStr(siegeMovingUnits)}</b> from <b>${siegeDec.from}</b> → <b>${siegeDec.to}</b>. This attack includes a Siege Engine, so the castle is no longer a barrier. Combat resolves in the Combat Phase at end of round.`);
+            const _siCastle = G.board[siegeDec.to]?.castle ? ' The Siege Engine fires first, bypassing the castle bonus.' : ' The Siege Engine fires first in combat.';
+            steps.push(`<b>SIEGE ASSAULT:</b> Move <b>${unitStr(siegeMovingUnits)}</b> from <b>${siegeDec.from}</b> → <b>${siegeDec.to}</b>.${_siCastle} Combat resolves in the Combat Phase at end of round.`);
             steps.push(renderCombatDialog(G.pendingMove));
         } else {
             steps.push(`<b>SIEGE ASSAULT: No Siege Engine available</b> — ${C} has no siege engines on the board. Skip to EXPAND/MANEUVER below.`);
@@ -3032,8 +3072,8 @@ function renderCombatDialog(move) {
     if (!G.roundCombats) G.roundCombats = [];
     // Avoid duplicates
     const already = G.roundCombats.some(c => c.from===move.from && c.to===move.to && c.color===move.color);
-    if (!already) G.roundCombats.push({ ...move });
     const defOwner = G.board[move.to]?.owner || 'neutral';
+    if (!already) G.roundCombats.push({ ...move, _defColor: move._defColor || defOwner });
     const def = totalUnitCount(move.to);
     const movingStr = move.movingUnits ? unitStr(move.movingUnits) : (move.movable||totalUnitCount(move.from))+' units';
     return `<div style="background:rgba(139,26,26,0.06);border:2px solid rgba(139,26,26,0.3);border-radius:8px;padding:10px 14px;font-size:0.87em;">
@@ -3075,7 +3115,7 @@ function advanceTurn() {
                 // Queue for end-of-round Combat Phase
                 if (!G.roundCombats) G.roundCombats = [];
                 const already = G.roundCombats.some(c=>c.from===mv.from&&c.to===mv.to&&c.color===mv.color);
-                if (!already) G.roundCombats.push({ ...mv });
+                if (!already) G.roundCombats.push({ ...mv, _defColor: mv._defColor || G.board[mv.to]?.owner || 'neutral' });
             }
         }
     }
@@ -3436,18 +3476,35 @@ function renderBEMove(bs, color) {
     const taxStr = T[from]?.tax > 0 ? `Tax ${T[from].tax}  ·  ` : '';
     const castleStr = b.castle ? '🏰  ·  ' : '';
 
-    // Adjacent territories
-    const adjs = (T[from]?.adj || []).filter(n => bs[n]);
-    const destRows = adjs.map(name => {
+    // Build destination list:
+    // 1-hop: all adjacent territories (attacks, expands, 1-hop maneuvers)
+    // 2-hop: own or disputed territories reachable through own territories (maneuver rule)
+    // "Disputed" = has a pending unresolved battle queued
+    const _beIsDisputed = (name) => (G.roundCombats||[]).some(b => b.to === name && !b._resolved);
+    const _beDestMap = new Map(); // name → hops
+    for (const adj of (T[from]?.adj || [])) {
+        if (bs[adj]) _beDestMap.set(adj, 1);
+    }
+    for (const adj1 of (T[from]?.adj || [])) {
+        if (!bs[adj1] || bs[adj1].owner !== color) continue; // must pass through own territory
+        for (const adj2 of (T[adj1]?.adj || [])) {
+            if (!bs[adj2] || adj2 === from || _beDestMap.has(adj2)) continue;
+            if (bs[adj2].owner === color || _beIsDisputed(adj2)) { // can land on own or disputed
+                _beDestMap.set(adj2, 2);
+            }
+        }
+    }
+    const _beDests = [..._beDestMap.entries()].sort((a,b) => a[1]-b[1] || a[0].localeCompare(b[0]));
+    const destRows = _beDests.map(([name, hops]) => {
         const ab = bs[name];
         const adjTotal = unitTotal(ab.units);
         const isOwn = ab.owner === color;
         const isEnemy = !isOwn && ab.owner !== 'neutral';
-        const isNeutral = ab.owner === 'neutral';
         const dotColor = COLOR_HEX[ab.owner] || '#aaa';
         const ownerLabel = isOwn ? 'Friendly' : isEnemy ? ab.owner.charAt(0).toUpperCase()+ab.owner.slice(1) : 'Neutral';
         const taxStr2 = T[name]?.tax > 0 ? ` · Tax ${T[name].tax}` : '';
         const castleIcon = ab.castle ? ' 🏰' : '';
+        const hopNote = hops === 2 ? ' · <span style="color:#8af;font-size:0.8em;">2 hops</span>' : '';
         const cls = isEnemy ? 'is-enemy' : isOwn ? 'is-friendly' : '';
         const selCls = BE.destTerr === name ? 'sel' : '';
 
@@ -3455,7 +3512,7 @@ function renderBEMove(bs, color) {
             <div class="be-dest-dot" style="background:${dotColor}"></div>
             <div class="be-dest-info">
                 <div class="be-dest-name">${name}${castleIcon}</div>
-                <div class="be-dest-sub">${ownerLabel}${taxStr2} · ${adjTotal} unit${adjTotal!==1?'s':''}</div>
+                <div class="be-dest-sub">${ownerLabel}${taxStr2} · ${adjTotal} unit${adjTotal!==1?'s':''}${hopNote}</div>
             </div>
             ${BE.destTerr===name ? '<span style="color:var(--accent);font-size:1.2em;font-weight:700;">✓</span>' : ''}
         </div>`;
@@ -3750,7 +3807,8 @@ function beConfirmMove() {
                 movingUnits: { ...mu },
                 movable: count,
                 isEnemy: true,
-                _fromEditor: true
+                _fromEditor: true,
+                _defColor: G.board[to]?.owner || 'neutral'
             });
         }
         addLog(`⚔ Battle queued: ${BE.color} will attack ${to} (${destOwner}) with ${desc} from ${from} — resolve in Combat Phase.`);
@@ -5917,7 +5975,8 @@ function closeTerrEdit() {
             movingUnits: { ...TE.attUnits },
             movable:     unitTotal(TE.attUnits),
             isEnemy:     true,
-            _fromEditor: true
+            _fromEditor: true,
+            _defColor:   G.board[TE.name]?.owner || 'neutral'
         });
         addLog(`⚔ State corrected: ${cAttacks(TE.attColor)} ${TE.name} (${G.board[TE.name]?.owner}) — battle queued for Combat Phase.`);
     }
