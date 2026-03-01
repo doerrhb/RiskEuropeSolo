@@ -603,6 +603,13 @@
         </style>
 </head>
 <body>
+<!-- Fixed auto-test stop button — always on top, only visible during auto-test -->
+<div id="autotest-stop-bar" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;
+    background:#c0392b;color:#fff;text-align:center;padding:8px 16px;
+    font-family:'Cinzel',serif;font-weight:700;font-size:0.95em;letter-spacing:0.05em;
+    box-shadow:0 2px 12px rgba(0,0,0,0.5);cursor:pointer;" onclick="autoTestToggle()">
+    ⏹ AUTO-TEST RUNNING — TAP HERE TO STOP
+</div>
 
 <div id="setup-screen" class="screen">
 <div class="paper">
@@ -1026,13 +1033,12 @@ function initBoard() {
             }
         }
         if (secondary) {
-            setBoardTerr(secondary.name, color, {F:secondary.units,A:0,C:0,S:0}, false);
-            // Place adjacent units for secondary capital — must be a non-city territory (same rule as setup picker)
+            // Secondary always starts with 3 units in city + 2 in adj = 5 total (matching primary)
+            setBoardTerr(secondary.name, color, {F:3,A:0,C:0,S:0}, false);
+            // Place adjacent units for secondary capital — must be a non-city territory
             const secAdj = (secondary.adjOptions||[]).find(a => !(T[a.name]?.tax > 0));
             if (secAdj) {
-                // Adjacent territory always gets 2 units (never 5-city, which breaks Kiev/Rusland)
-                const adjUnits = secAdj.units || 2;
-                if (adjUnits > 0) setBoardTerr(secAdj.name, color, {F:adjUnits,A:0,C:0,S:0}, false);
+                setBoardTerr(secAdj.name, color, {F:2,A:0,C:0,S:0}, false);
             }
         }
     });
@@ -2218,6 +2224,7 @@ function launchGame() {
         humanDeck:[], humanDiscard:[], humanCard:null, humanVariant:null, humanFlow:[], _humanCardPending:null, _humanVariantPending:null,
         roundCombats:[],
         logHistory:[],
+        crownHistory:[], // [{round, crowns:{color:n,...}}] — snapshot at start of each round
         // Track which cities have been captured at least once (first capture awards tax coins)
         capturedCities: new Set()
     };
@@ -2286,6 +2293,9 @@ function prepareRound(silent=false) {
         G.hand[c] = [card1, card2];
     });
     if(!silent) addLog(`--- Round ${G.round} begins. Cards dealt to all automatons. ---`);
+    // Snapshot crown scores for the line graph
+    if (!G.crownHistory) G.crownHistory = [];
+    G.crownHistory.push({ round: G.round, crowns: { ...G.crowns } });
 }
 
 function getTurnOrder() {
@@ -2449,25 +2459,116 @@ function showWinnerScreen() {
     const tieNote = G._tiebreakNote
         ? `<div style="margin-top:6px;font-size:0.78em;color:var(--ink-light);font-style:italic;">${G._tiebreakNote}</div>` : '';
 
-    // Overlay the entire screen
+    // Final standings
+    const standings = [...(G.seating||[])].sort((a,b)=>(G.crowns[b]||0)-(G.crowns[a]||0))
+        .map((col,i) => {
+            const colHex = COLOR_HEX[col]||'#888';
+            const colLight = ['orange','green','blue'].includes(col);
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-radius:5px;margin:3px 0;background:${colHex}22;border-left:4px solid ${colHex};">
+                <span style="font-weight:700;color:${colHex};">${i+1}. ${cName(col).toUpperCase()}${col===S.playerColor?' (YOU)':''}</span>
+                <span>👑 ${G.crowns[col]||0} &nbsp;·&nbsp; ${ownedBy(col).length} territories</span>
+            </div>`;
+        }).join('');
+
+    // Crown line graph as inline SVG
+    const graphSVG = buildCrownGraph();
+
     let el = document.getElementById('winner-overlay');
     if (!el) {
         el = document.createElement('div');
         el.id = 'winner-overlay';
-        el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.88);';
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:flex-start;justify-content:center;background:rgba(0,0,0,0.88);overflow-y:auto;padding:20px 0;';
         document.body.appendChild(el);
     }
     el.innerHTML = `<div style="background:var(--parchment);border:4px solid ${hex};border-radius:12px;
-        padding:36px 28px;max-width:360px;width:90%;text-align:center;box-shadow:0 0 60px ${hex}88;">
-        <div style="font-size:3em;margin-bottom:8px;">👑</div>
-        <div style="font-family:Cinzel,serif;font-size:1.6em;font-weight:700;color:${hex};margin-bottom:8px;">${who}</div>
-        <div style="font-size:1em;color:var(--ink-light);margin-bottom:24px;">${sub}${tieNote}</div>
-        <button onclick="confirmReset()" style="background:${hex};color:${txt};border:none;border-radius:8px;
-            padding:13px 28px;font-family:Cinzel,serif;font-size:1em;font-weight:700;cursor:pointer;width:100%;">
-            ↺ New Game
-        </button>
+        padding:28px 24px;max-width:480px;width:94%;text-align:center;box-shadow:0 0 60px ${hex}88;margin:auto;">
+        <div style="font-size:2.5em;margin-bottom:6px;">👑</div>
+        <div style="font-family:Cinzel,serif;font-size:1.5em;font-weight:700;color:${hex};margin-bottom:6px;">${who}</div>
+        <div style="font-size:0.95em;color:var(--ink-light);margin-bottom:16px;">${sub}${tieNote}</div>
+        <div style="text-align:left;margin-bottom:16px;">${standings}</div>
+        ${graphSVG ? `<div style="margin-bottom:16px;">${graphSVG}</div>` : ''}
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button onclick="saveGameLog()" style="flex:1;min-width:120px;background:var(--ink);color:#fff;border:none;border-radius:8px;
+                padding:12px 16px;font-family:Cinzel,serif;font-size:0.88em;font-weight:700;cursor:pointer;">
+                📋 Save Log
+            </button>
+            <button onclick="confirmReset()" style="flex:1;min-width:120px;background:${hex};color:${txt};border:none;border-radius:8px;
+                padding:12px 16px;font-family:Cinzel,serif;font-size:0.88em;font-weight:700;cursor:pointer;">
+                ↺ New Game
+            </button>
+        </div>
     </div>`;
     el.style.display = 'flex';
+}
+
+function buildCrownGraph() {
+    const hist = G.crownHistory || [];
+    if (hist.length < 2) return '';
+    const colors = G.seating || ['orange','green','purple','blue'];
+    const W = 420, H = 160, PAD = { top:16, right:16, bottom:28, left:28 };
+    const maxCrowns = Math.max(7, ...hist.map(h => Math.max(...colors.map(c => h.crowns[c]||0))));
+    const rounds = hist.map(h => h.round);
+    const minR = rounds[0], maxR = rounds[rounds.length-1];
+    const xScale = r => PAD.left + (maxR===minR ? 0 : (r-minR)/(maxR-minR)) * (W-PAD.left-PAD.right);
+    const yScale = v => PAD.top + (1 - v/maxCrowns) * (H-PAD.top-PAD.bottom);
+
+    // Grid lines
+    let gridLines = '';
+    for (let v = 0; v <= maxCrowns; v += (maxCrowns > 10 ? 2 : 1)) {
+        const y = yScale(v);
+        gridLines += `<line x1="${PAD.left}" y1="${y}" x2="${W-PAD.right}" y2="${y}" stroke="#ddd" stroke-width="1"/>
+            <text x="${PAD.left-4}" y="${y+4}" text-anchor="end" font-size="9" fill="#999">${v}</text>`;
+    }
+    // Win line at 7
+    const yWin = yScale(7);
+    gridLines += `<line x1="${PAD.left}" y1="${yWin}" x2="${W-PAD.right}" y2="${yWin}" stroke="#8b1a1a" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
+        <text x="${W-PAD.right+2}" y="${yWin+4}" font-size="8" fill="#8b1a1a" opacity="0.8">Win</text>`;
+
+    // Round labels on x axis
+    let xLabels = '';
+    rounds.forEach(r => {
+        xLabels += `<text x="${xScale(r)}" y="${H-PAD.bottom+12}" text-anchor="middle" font-size="9" fill="#999">R${r}</text>`;
+    });
+
+    // Player lines
+    let lines = '';
+    colors.forEach(col => {
+        const points = hist.map(h => `${xScale(h.round)},${yScale(h.crowns[col]||0)}`).join(' ');
+        const colHex = COLOR_HEX[col] || '#888';
+        const lastH = hist[hist.length-1];
+        const lastX = xScale(lastH.round), lastY = yScale(lastH.crowns[col]||0);
+        lines += `<polyline points="${points}" fill="none" stroke="${colHex}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+            <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${colHex}"/>`;
+    });
+
+    // Legend
+    let legend = '';
+    colors.forEach((col, i) => {
+        const lx = PAD.left + i * 96;
+        const ly = H - 4;
+        const colHex = COLOR_HEX[col]||'#888';
+        legend += `<line x1="${lx}" y1="${ly}" x2="${lx+14}" y2="${ly}" stroke="${colHex}" stroke-width="2.5"/>
+            <text x="${lx+17}" y="${ly+4}" font-size="9" fill="${colHex}" font-weight="700">${col.toUpperCase()}</text>`;
+    });
+
+    return `<div style="text-align:left;">
+        <div style="font-family:Cinzel,serif;font-size:0.78em;font-weight:700;color:var(--ink-light);margin-bottom:6px;text-align:center;">CROWN PROGRESSION</div>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:#fff9f0;border-radius:6px;border:1px solid #e0d8c8;">
+            ${gridLines}${xLabels}${lines}${legend}
+        </svg>
+    </div>`;
+}
+
+function saveGameLog() {
+    const logText = [...(G.logHistory||[])].reverse().join('\n');
+    const header = `Risk Europe Solo — Log exported Round ${G.round}\n${'='.repeat(50)}\n`;
+    const blob = new Blob([header + logText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `risk-europe-solo-log-round${G.round}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
 }
 function addCrown(c, v) {
     if (!G.crowns) G.crowns = {};
@@ -2730,7 +2831,12 @@ function generateSteps(card, color, coins) {
             }
             return steps;
         }
-        if (coins <= 4) {
+        // Crown card win condition: if buying crown card wins the game, TAX until 10 coins
+        const _crownWinNeeds10 = (G.crowns?.[color]||0) + 1 >= 7 && coins < 10;
+        if (coins <= 4 || _crownWinNeeds10) {
+            if (_crownWinNeeds10 && coins > 4) {
+                steps.push(`<div class="shield-reminder">👑 CROWN STRATEGY: ${C} needs 1 more Crown — saving for winning Crown Card purchase. Taxing to reach 10 coins (has ${coins}).</div>`);
+            }
             const taxDec = decideTax(color);
             const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
             const taxAmt  = taxDec ? taxDec.yield : '?';
@@ -3014,7 +3120,11 @@ function generateSteps(card, color, coins) {
             return steps;
         }
         steps.push(`<b>TAX OR SPEND (MAIN):</b>`);
-        if (coins <= 4) {
+        const _crownWinNeeds10b = (G.crowns?.[color]||0) + 1 >= 7 && coins < 10;
+        if (coins <= 4 || _crownWinNeeds10b) {
+            if (_crownWinNeeds10b && coins > 4) {
+                steps.push(`<div class="shield-reminder">👑 CROWN STRATEGY: ${C} needs 1 more Crown — saving for winning Crown Card purchase. Taxing to reach 10 coins (has ${coins}).</div>`);
+            }
             const taxDec = decideTax(color);
             const taxCity = taxDec ? taxDec.city : '(highest-yield city)';
             const taxAmt  = taxDec ? taxDec.yield : '?';
@@ -3104,17 +3214,26 @@ function skipCombatStep() {}       // deprecated
 
 function autoTestToggle() {
     S.autoTest = !S.autoTest;
-    const btn = document.getElementById('autotest-btn');
+    const stopBar = document.getElementById('autotest-stop-bar');
+    const toolBtn = document.getElementById('autotest-btn');
     if (S.autoTest) {
-        if (btn) { btn.textContent = '🤖 Auto-Test Mode: ON'; btn.style.color = '#2d7a2d'; btn.style.borderColor = '#2d7a2d'; }
+        if (stopBar) stopBar.style.display = 'block';
+        if (toolBtn) { toolBtn.textContent = '🤖 Auto-Test Mode: ON'; toolBtn.style.color = '#2d7a2d'; toolBtn.style.borderColor = '#2d7a2d'; }
         addLog('🤖 AUTO-TEST MODE ON — playing all turns automatically.');
-        // Pre-deal cards for current round if human hasn't drawn yet
         _autoTestDealHuman();
         scheduleAutoTick();
     } else {
         clearTimeout(S._autoTickTimer);
-        if (btn) { btn.textContent = '🤖 Auto-Test Mode: OFF'; btn.style.color = '#555'; btn.style.borderColor = '#555'; }
-        addLog('🎮 AUTO-TEST paused — manual play resumed.');
+        if (stopBar) stopBar.style.display = 'none';
+        if (toolBtn) { toolBtn.textContent = '🤖 Auto-Test Mode: OFF'; toolBtn.style.color = '#555'; toolBtn.style.borderColor = '#555'; }
+        addLog('🎮 AUTO-TEST stopped — resuming manual play.');
+        // Restore human player: clear the pre-dealt hand slot so the human draws normally
+        if (G.hand && S.playerColor) delete G.hand[S.playerColor];
+        G.revealed = false;
+        G.currentSteps = [];
+        G.checkedSteps = new Set();
+        G.pendingMoves = [];
+        G.pendingMove = null;
         render();
     }
 }
@@ -6116,31 +6235,74 @@ function openTerrEdit(name) {
 }
 
 function closeTerrEdit() {
-    // If a second (attacking) army was set up AND has units, set up a pending combat
-    // but frame it as a state correction — the user is fixing what's on the board.
-    if (TE.attColor && unitTotal(TE.attUnits) > 0) {
-        // Store the attacking army INTO the board as a contested state.
-        // We record it as a pending combat for the Combat Phase, exactly as if it were queued normally.
-        if (!G.roundCombats) G.roundCombats = [];
-        // Remove any previous editor-queued battle for the same territory + attacker
-        G.roundCombats = G.roundCombats.filter(
-            b => !(b._fromEditor && b.to === TE.name && b.color === TE.attColor)
-        );
-        G.roundCombats.push({
-            color:       TE.attColor,
-            from:        '__editor__',   // sentinel: no origin territory
-            to:          TE.name,
-            movingUnits: { ...TE.attUnits },
-            movable:     unitTotal(TE.attUnits),
-            isEnemy:     true,
-            _fromEditor: true,
-            _defColor:   G.board[TE.name]?.owner || 'neutral'
-        });
-        addLog(`⚔ State corrected: ${cAttacks(TE.attColor)} ${TE.name} (${G.board[TE.name]?.owner}) — battle queued for Combat Phase.`);
+    const hasContest = TE.attColor && unitTotal(TE.attUnits) > 0;
+    if (hasContest) {
+        // Two colors present — ask user who attacks whom before closing
+        const defColor = G.board[TE.name]?.owner || 'neutral';
+        const attColor = TE.attColor;
+        const defLabel = defColor.charAt(0).toUpperCase()+defColor.slice(1)+(defColor===S.playerColor?' (You)':'');
+        const attLabel = attColor.charAt(0).toUpperCase()+attColor.slice(1)+(attColor===S.playerColor?' (You)':'');
+        const body = document.getElementById('terr-edit-body');
+        const existing = body.querySelector('.te-battle-prompt');
+        if (existing) existing.remove();
+        const prompt = document.createElement('div');
+        prompt.className = 'te-battle-prompt';
+        prompt.style.cssText = 'background:#f8e8e8;border:2px solid #8b1a1a;border-radius:8px;padding:12px 14px;margin-top:10px;';
+        const attHex = COLOR_HEX[attColor]||'#888';
+        const defHex = COLOR_HEX[defColor]||'#888';
+        prompt.innerHTML = `
+            <div style="font-family:Cinzel,serif;font-weight:700;font-size:0.88em;margin-bottom:8px;">⚔ Contested territory — who is attacking?</div>
+            <div style="display:flex;gap:8px;margin-bottom:6px;">
+                <button style="flex:1;padding:8px;font-family:Cinzel,serif;font-size:0.82em;font-weight:700;
+                    background:${attHex};color:${['orange','green','blue'].includes(attColor)?'#000':'#fff'};
+                    border:none;border-radius:6px;cursor:pointer;"
+                    onclick="teConfirmBattle('${attColor}','${defColor}')">
+                    ${attLabel} attacks
+                </button>
+                <button style="flex:1;padding:8px;font-family:Cinzel,serif;font-size:0.82em;font-weight:700;
+                    background:${defHex};color:${['orange','green','blue'].includes(defColor)?'#000':'#fff'};
+                    border:none;border-radius:6px;cursor:pointer;"
+                    onclick="teConfirmBattle('${defColor}','${attColor}')">
+                    ${defLabel} attacks
+                </button>
+            </div>
+            <button style="width:100%;padding:7px;background:none;border:1px solid #aaa;border-radius:6px;
+                font-family:Cinzel,serif;font-size:0.8em;cursor:pointer;color:#555;"
+                onclick="teSkipBattle()">
+                No battle — just save state
+            </button>`;
+        body.appendChild(prompt);
+        return; // wait for user choice
     }
+    _doCloseTerrEdit();
+}
+
+function teConfirmBattle(attColor, defColor) {
+    if (!G.roundCombats) G.roundCombats = [];
+    G.roundCombats = G.roundCombats.filter(b => !(b._fromEditor && b.to === TE.name));
+    const attIsSecond = attColor === TE.attColor;
+    const movingUnits = attIsSecond ? { ...TE.attUnits } : { ...G.board[TE.name]?.units };
+    G.roundCombats.push({
+        color:       attColor,
+        from:        '__editor__',
+        to:          TE.name,
+        movingUnits,
+        movable:     unitTotal(movingUnits),
+        isEnemy:     true,
+        _fromEditor: true,
+        _defColor:   defColor
+    });
+    addLog(`⚔ State corrected: ${cAttacks(attColor)} ${TE.name} (${defColor}) — battle queued for Combat Phase.`);
+    _doCloseTerrEdit();
+}
+
+function teSkipBattle() {
+    _doCloseTerrEdit();
+}
+
+function _doCloseTerrEdit() {
     document.getElementById('terr-edit-overlay').classList.remove('open');
     TE = { name:null, attColor:null, attUnits:{F:0,A:0,C:0,S:0} };
-    // Re-evaluate current turn state after the board correction
     const _teCurColor = activeColor ? activeColor() : null;
     const _teIsHuman = S.playerColor && _teCurColor === S.playerColor;
     if (!_teIsHuman && G.revealed && _teCurColor) {
@@ -6239,7 +6401,7 @@ function renderTerrEdit() {
             <div style="padding:0 4px;">${makeUnitRows(TE.attUnits,'te-att-','teAdjAtt')}</div>
         </div>
         <div style="font-size:0.78em;color:var(--ink-light);margin-bottom:8px;padding:0 2px;">
-            ⚔ Two colours set — this territory has a contested state. When saved, the battle will be queued for the Combat Phase. The main interface will re-evaluate.
+            ⚔ Two colours set — when you save, you’ll be asked who is attacking.
         </div>`;
     }
 
@@ -6266,7 +6428,7 @@ function renderTerrEdit() {
             ${castleNote}
         </div>
         <button class="te-save-btn" onclick="closeTerrEdit()">
-            ${hasAtt && unitTotal(TE.attUnits)>0 ? '⚔ Save State & Queue Battle' : '✓ Save Board Correction'}
+            ✓ Save Board State
         </button>
     `;
 }
@@ -6316,7 +6478,7 @@ function teAdjAtt(k, v) {
     if (tot) tot.textContent = '('+unitTotal(TE.attUnits)+' units)';
     // Refresh save button label
     const btn = document.querySelector('.te-save-btn');
-    if (btn) btn.textContent = unitTotal(TE.attUnits)>0 ? '⚔ Save State & Queue Battle' : '✓ Save Board Correction';
+    if (btn) btn.textContent = '✓ Save Board State';
 }
 
 // legacy alias kept so any leftover onclick="teAdjUnit(...)" still works
