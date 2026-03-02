@@ -902,7 +902,7 @@ const T = {
 // COMPONENT SUPPLY TRACKING
 // ================================================================
 // Risk Europe box counts (per-color for army units; shared for castles/crown cards)
-const BOX_SUPPLY = { F:40, A:12, C:12, S:4, Castle:16, CrownCard:8 };
+const BOX_SUPPLY = { F:35, A:12, C:12, S:4, Castle:8, CrownCard:8 };
 
 // Compute how many of each component are left in the reserve (not on board)
 function computeSupply() {
@@ -927,6 +927,21 @@ function computeSupply() {
         Castle:    Math.max(0, BOX_SUPPLY.Castle    - castlesOnBoard),
         CrownCard: Math.max(0, BOX_SUPPLY.CrownCard - crownCardsUsed),
     };
+}
+
+// Supply-safe unit placement: returns how many of `type` (F/A/C/S) color can still place.
+// Used by applyShieldBonus, applyFortify, and applySpend to clamp placements to box limits.
+function availableUnitSupply(color, type) {
+    if (type === 'Castle') {
+        let castlesOnBoard = 0;
+        for (const cell of Object.values(G.board||{})) { if (cell.castle) castlesOnBoard++; }
+        return Math.max(0, BOX_SUPPLY.Castle - castlesOnBoard);
+    }
+    let onBoard = 0;
+    for (const cell of Object.values(G.board||{})) {
+        if (cell.owner === color) onBoard += (cell.units?.[type]||0);
+    }
+    return Math.max(0, BOX_SUPPLY[type] - onBoard);
 }
 
 function shieldKeyForTerr(terrName) {
@@ -1576,12 +1591,19 @@ function applyFortify(territory, count, actingColor) {
         return;
     }
     const before = totalUnitCount(territory);
-    G.board[territory].units.F += count;
+    // Clamp to available footman supply — never exceed box limit
+    const availF = availableUnitSupply(actingColor || terrOwner, 'F');
+    const actualCount = Math.min(count, availF);
+    if (actualCount <= 0) {
+        addLog(`⚠ FORTIFY SKIPPED: ${cName(actingColor || terrOwner)} has no Footmen left in supply.`);
+        return;
+    }
+    G.board[territory].units.F += actualCount;
     const logColor = actingColor || terrOwner;
     const _fConNote = isContested(territory)
         ? (isDefenderOf(logColor, territory) ? ' [CONTESTED — DEFENDING]' : ' [CONTESTED — ATTACKER ⚠]')
         : '';
-    cLog(logColor, `${cName(logColor)} FORTIFY +${count} Footm${count>1?'en':'an'} at ${boardStr(territory)}${_fConNote} (was ${before} total)`);
+    cLog(logColor, `${cName(logColor)} FORTIFY +${actualCount} Footm${actualCount>1?'en':'an'} at ${boardStr(territory)}${_fConNote} (was ${before} total)`);
 }
 
 function applySpend(color, purchase, placements) {
@@ -1598,17 +1620,25 @@ function applySpend(color, purchase, placements) {
         if (!G.board[p.territory]) return;
         const before = totalUnitCount(p.territory);
         if (p.type === 'castle') {
-            G.board[p.territory].castle = true;
-            placeLogs.push(`Castle placed at ${p.territory}`);
+            if (availableUnitSupply(color, 'Castle') > 0) {
+                G.board[p.territory].castle = true;
+                placeLogs.push(`Castle placed at ${p.territory}`);
+            } else { placeLogs.push(`Castle skipped (all 8 castles already on board)`); }
         } else if (p.type === 'siege') {
-            G.board[p.territory].units.S++;
-            const after = totalUnitCount(p.territory);
-            placeLogs.push(`+1 Siege Engine at ${p.territory} (${before}→${after})`);
+            const canS = availableUnitSupply(color, 'S');
+            if (canS > 0) {
+                G.board[p.territory].units.S++;
+                const after = totalUnitCount(p.territory);
+                placeLogs.push(`+1 Siege Engine at ${p.territory} (${before}→${after})`);
+            } else { placeLogs.push(`Siege Engine skipped (supply exhausted)`); }
         } else if (p.type === 'units') {
-            G.board[p.territory].units[p.unitType] = (G.board[p.territory].units[p.unitType]||0) + p.count;
-            const after = totalUnitCount(p.territory);
-            const uname = p.unitType==='C'?'Cavalry':p.unitType==='A'?`Archer${p.count>1?'s':''}`:p.unitType==='S'?'Siege Engine':`Footm${p.count>1?'en':'an'}`;
-            placeLogs.push(`+${p.count} ${uname} at ${p.territory} (${before}→${after} total)`);
+            const canPlace = Math.min(p.count, availableUnitSupply(color, p.unitType));
+            if (canPlace > 0) {
+                G.board[p.territory].units[p.unitType] = (G.board[p.territory].units[p.unitType]||0) + canPlace;
+                const after = totalUnitCount(p.territory);
+                const uname = p.unitType==='C'?'Cavalry':p.unitType==='A'?`Archer${canPlace>1?'s':''}`:p.unitType==='S'?'Siege Engine':`Footm${canPlace>1?'en':'an'}`;
+                placeLogs.push(`+${canPlace} ${uname} at ${p.territory} (${before}→${after} total)`);
+            } else { placeLogs.push(`${p.unitType} unit skipped (supply exhausted)`); }
         }
     });
     if (placeLogs.length) {
@@ -2190,22 +2220,27 @@ function applyShieldBonus(city, color, context) {
     const _terr = _sh?.terr || city; // "France" for Paris, "Turkey" for Constantinople, etc.
 
     if (city === 'Paris' && context === 'tax') {
-        G.board[_terr].units.C = (G.board[_terr].units.C||0) + 1;
-        G.board[_terr].units.F = (G.board[_terr].units.F||0) + 1;
-        addLog(`🛡 Paris shield: ${cName(color)} receives 1 free Cavalry + 1 Footman in France (Paris).`);
+        const addC = Math.min(1, availableUnitSupply(color, 'C'));
+        const addF = Math.min(1, availableUnitSupply(color, 'F'));
+        if (addC > 0) G.board[_terr].units.C = (G.board[_terr].units.C||0) + addC;
+        if (addF > 0) G.board[_terr].units.F = (G.board[_terr].units.F||0) + addF;
+        if (addC > 0 || addF > 0) addLog(`🛡 Paris shield: ${cName(color)} receives ${addC > 0 ? '1 free Cavalry' : ''}${addC > 0 && addF > 0 ? ' + ' : ''}${addF > 0 ? '1 Footman' : ''} in France (Paris).`);
+        else addLog(`🛡 Paris shield: ${cName(color)} has no units left in supply — bonus skipped.`);
     } else if (city === 'Madrid' && context === 'tax') {
-        G.board[_terr].units.F = (G.board[_terr].units.F||0) + 4;
-        addLog(`🛡 Madrid shield: ${cName(color)} receives 4 free Footmen in León Castile (Madrid).`);
+        const addF = Math.min(4, availableUnitSupply(color, 'F'));
+        if (addF > 0) { G.board[_terr].units.F = (G.board[_terr].units.F||0) + addF; addLog(`🛡 Madrid shield: ${cName(color)} receives ${addF} free Footm${addF!==1?'en':'an'} in León Castile (Madrid).`); }
+        else addLog(`🛡 Madrid shield: ${cName(color)} has no Footmen left in supply — bonus skipped.`);
     } else if (city === 'London' && context === 'tax') {
-        G.board[_terr].units.A = (G.board[_terr].units.A||0) + 2;
-        addLog(`🛡 London shield: ${cName(color)} receives 2 free Archers in England (London).`);
+        const addA = Math.min(2, availableUnitSupply(color, 'A'));
+        if (addA > 0) { G.board[_terr].units.A = (G.board[_terr].units.A||0) + addA; addLog(`🛡 London shield: ${cName(color)} receives ${addA} free Archer${addA!==1?'s':''} in England (London).`); }
+        else addLog(`🛡 London shield: ${cName(color)} has no Archers left in supply — bonus skipped.`);
     } else if (city === 'Constantinople' && context === 'siege_buy') {
-        // Free 4 Footmen placed with the siege engine (find territory with freshest siege engine)
         const siegeTerr = ownedBy(color).filter(n => G.board[n].units.S > 0)
             .sort((a,b) => G.board[b].units.S - G.board[a].units.S)[0];
         if (siegeTerr) {
-            G.board[siegeTerr].units.F = (G.board[siegeTerr].units.F||0) + 4;
-            addLog(`🛡 Constantinople shield: ${cName(color)} receives 4 free Footmen at ${cityLabel(siegeTerr)}.`);
+            const addF = Math.min(4, availableUnitSupply(color, 'F'));
+            if (addF > 0) { G.board[siegeTerr].units.F = (G.board[siegeTerr].units.F||0) + addF; addLog(`🛡 Constantinople shield: ${cName(color)} receives ${addF} free Footm${addF!==1?'en':'an'} at ${cityLabel(siegeTerr)}.`); }
+            else addLog(`🛡 Constantinople shield: ${cName(color)} has no Footmen left in supply — bonus skipped.`);
         }
     } else if (city === 'Kiev' && context === 'spend') {
         // Kiev shield only extends WHERE the automaton can recruit (to supply-line non-city territories).
@@ -2865,7 +2900,8 @@ function generateSteps(card, color, coins) {
                     F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
                     A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
                     C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
-                    S:hasSiege2?1:0, castle:hasCastle2 };
+                    S:hasSiege2?1:0, castle:hasCastle2,
+                    crownCard: !!savedSpend.crownCard };
                 const placements2 = decideSpendPlacements(color, purchase2);
                 G.pendingMove = { type:'spend', color, purchase:purchase2, placements:placements2 };
                 G.pendingMoves.push(G.pendingMove);
@@ -2922,7 +2958,8 @@ function generateSteps(card, color, coins) {
                     A: (items.match(/(\d+) Archer/)||[0,0])[1]|0,
                     C: (items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
                     S: hasSiege ? 1 : 0,
-                    castle: hasCastle
+                    castle: hasCastle,
+                    crownCard: !!spendResult.crownCard
                 };
                 const placements = decideSpendPlacements(color, purchase);
                 G.pendingMove = { type:'spend', color, purchase, placements };
@@ -3220,7 +3257,8 @@ function generateSteps(card, color, coins) {
                     F:(items.match(/(\d+) Footm/)||[0,0])[1]|0,
                     A:(items.match(/(\d+) Archer/)||[0,0])[1]|0,
                     C:(items.match(/(\d+) Cavalry/)||[0,0])[1]|0,
-                    S:hasSiege?1:0, castle:hasCastle };
+                    S:hasSiege?1:0, castle:hasCastle,
+                    crownCard: !!spendResult2.crownCard };
                 const placements = decideSpendPlacements(color, purchase);
                 G.pendingMove = { type:'spend', color, purchase, placements };
                 G.pendingMoves.push(G.pendingMove);
