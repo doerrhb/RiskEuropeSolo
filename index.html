@@ -778,7 +778,6 @@
                     <div id="stuck-hint" style="display:none;">
                         <button onclick="forceAdvance()" style="width:100%;text-align:left;background:none;border:1px solid #e0a020;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#996600;cursor:pointer;">⏩ Force Advance Turn</button>
                     </div>
-                    <button onclick="forceAdvance()" style="text-align:left;background:none;border:1px solid #e0a020;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#996600;cursor:pointer;">⏩ Force Advance Turn</button>
                     <button onclick="confirmReset()" style="text-align:left;background:none;border:1px solid #c0392b;border-radius:6px;padding:9px 14px;font-family:'Cinzel',serif;font-size:0.82em;font-weight:700;color:#c0392b;cursor:pointer;">↺ Reset Game</button>
                     <hr style="border:none;border-top:1px solid var(--border-light);margin:4px 0;">
                     <a href="solo_rules/rules.html" target="_blank" rel="noopener"
@@ -802,7 +801,7 @@ const CAPITALS = [
     { name:"France",       city:"Paris",          tax:3, units:3, adjOptions:[{name:"Normandy",units:2},{name:"Lorraine",units:2},{name:"Navarre",units:2},{name:"Burgundy",units:2}] },
     { name:"England",      city:"London",         tax:3, units:3, adjOptions:[{name:"Wales",units:2},{name:"Normandy",units:2},{name:"Scotland",units:2}] },
     { name:"Sweden",       city:"Stockholm",      tax:3, units:3, adjOptions:[{name:"Norway",units:2},{name:"Denmark",units:2},{name:"Finland",units:2}] },
-    { name:"Rusland",      city:"Kiev",           tax:2, units:3, adjOptions:[{name:"Galicia",units:2},{name:"Polotsk",units:2},{name:"Smolensk",units:2},{name:"Poland",units:2}] },
+    { name:"Rusland",      city:"Kiev",           tax:2, units:2, adjOptions:[{name:"Galicia",units:2},{name:"Polotsk",units:2},{name:"Smolensk",units:2},{name:"Poland",units:2}] },
     { name:"Rome",         city:"Rome",           tax:4, units:3, adjOptions:[{name:"Lombardy",units:2},{name:"Kingdom of Sicily",units:2},{name:"Sardinia",units:2}] },
     { name:"Saxony",       city:"Berlin",         tax:4, units:3, adjOptions:[{name:"Friesland",units:2},{name:"Lorraine",units:2},{name:"Franconia",units:2},{name:"Bohemia",units:2},{name:"Denmark",units:2}] },
     { name:"Turkey",       city:"Constantinople", tax:3, units:3, adjOptions:[{name:"Bulgaria",units:2},{name:"Greece",units:2}] },
@@ -2547,15 +2546,6 @@ function showWinnerScreen() {
         }).join('');
 
     // Crown line graph as inline SVG
-    // Ensure final crown state is recorded (snapshots are taken at round start, not end)
-    if (G.crownHistory) {
-        const lastEntry = G.crownHistory[G.crownHistory.length - 1];
-        if (lastEntry && lastEntry.round === G.round) {
-            lastEntry.crowns = { ...G.crowns };
-        } else {
-            G.crownHistory.push({ round: G.round, crowns: { ...G.crowns } });
-        }
-    }
     const graphSVG = buildCrownGraph();
 
     let el = document.getElementById('winner-overlay');
@@ -3565,12 +3555,6 @@ function advanceTurn() {
 
 function confirmReset() {
     if(!confirm('Reset entire game and return to setup?')) return;
-    // Stop any running auto-test before wiping state
-    clearTimeout(S._autoTickTimer);
-    S._autoTickTimer = null;
-    S.autoTest = false;
-    const btn = document.getElementById('autotest-btn');
-    if (btn) { btn.textContent = '🤖 Auto-Test Mode: OFF'; btn.style.color = '#555'; btn.style.borderColor = '#555'; }
     const wo = document.getElementById('winner-overlay');
     if (wo) wo.style.display = 'none';
     G = {};
@@ -6684,7 +6668,7 @@ function closeCombatPhase() {
     // G.round was already incremented in advanceTurn before openCombatPhase was called
     if (!G.winner) prepareRound(false);
     render();
-    if (S.autoTest && !G.winner) scheduleAutoTick();
+    if (S.autoTest) scheduleAutoTick();
 }
 
 function renderCombatPhase() {
